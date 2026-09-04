@@ -23,6 +23,7 @@
     "@tanstack/react-query": "^5.8.4",
     "axios": "^1.6.2",
     "lucide-react": "^0.294.0",
+    "qa-saas-platform": "file:..",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.48.2",

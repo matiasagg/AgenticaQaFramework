@@ -40,6 +40,10 @@ interface DorValidation {
   }>
   summary: string
   recommendations: string[]
+  // Indica si el resultado viene de la caché del backend (análisis guardado)
+  // o fue recién generado (con IA). validatedAt: fecha del análisis original.
+  cached?: boolean
+  validatedAt?: string
 }
 
 export default function UserStoriesPage() {
@@ -118,10 +122,17 @@ export default function UserStoriesPage() {
     }
   }
 
-  const handleValidateDor = async (storyId: string) => {
+  /**
+   * Valida el DoR de una HDU.
+   * Por defecto usa la caché del backend (análisis persistido, estable).
+   * Con `refresh=true` fuerza un nuevo análisis con IA (no-determinista).
+   */
+  const handleValidateDor = async (storyId: string, refresh = false) => {
     setValidatingDor(storyId)
     try {
-      const response = await api.post(`/user-stories/${storyId}/validate-dor`)
+      const response = await api.post(
+        `/user-stories/${storyId}/validate-dor${refresh ? '?refresh=true' : ''}`
+      )
       setValidationResult(response.data.validation)
       setAiAnalysis(response.data.aiAnalysis)
       setSelectedStory(response.data.userStory)
@@ -420,9 +431,27 @@ export default function UserStoriesPage() {
       {validationResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-              Resultado Validación DoR
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Resultado Validación DoR
+              </h2>
+              {/* Indicador de origen del resultado: caché (guardado) o freshly generado */}
+              <div className="flex items-center gap-2">
+                {validationResult.cached && (
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-xs">
+                    📌 Guardado{validationResult.validatedAt ? ` · ${new Date(validationResult.validatedAt).toLocaleString()}` : ''}
+                  </span>
+                )}
+                <button
+                  onClick={() => selectedStory && handleValidateDor(selectedStory.id, true)}
+                  disabled={validatingDor === selectedStory?.id}
+                  className="px-3 py-1 text-sm bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50"
+                  title="Vuelve a ejecutar el análisis con IA (el resultado puede variar)"
+                >
+                  🔄 Refrescar análisis
+                </button>
+              </div>
+            </div>
             
             {/* Score */}
             <div className={`p-4 rounded-lg mb-4 ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>

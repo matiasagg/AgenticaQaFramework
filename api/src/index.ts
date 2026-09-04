@@ -77,7 +77,7 @@ async function startServer() {
 🌐 Port: ${config.port}
 🔗 URL: http://localhost:${config.port}
 📚 API Docs: http://localhost:${config.port}/api/health
-🤖 AI Model: ${config.openai.model}
+🤖 AI Model: ${config.gemini.model}
 💾 Database: PostgreSQL
 ☁️  Storage: AWS S3
 ========================================

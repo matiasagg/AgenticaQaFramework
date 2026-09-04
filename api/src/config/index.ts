@@ -16,20 +16,19 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || '',
   
   // JWT configuration
+  // NOTE: In production, JWT_SECRET is REQUIRED (validateConfig enforces it).
+  // The insecure fallback only applies to local development to ease onboarding.
   jwt: {
-    secret: process.env.JWT_SECRET || 'default-secret-change-in-production',
+    secret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-only-secret-change-in-production'),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
   
-  // OpenAI configuration
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4',
-  },
-  // Gemini configuration
+  // Gemini configuration (único proveedor de IA)
+  // Nota: GEMINI_API_KEY global es el fallback. Cada usuario también puede
+  // configurar su propia key (BYO) que se almacena en su perfil (ver User.geminiApiKey).
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
   },
   
   // AWS S3 configuration
@@ -59,13 +58,15 @@ export const config = {
 /**
  * Validate that all required environment variables are set
  * Throws an error if any required variable is missing
- * Note: OPENAI_API_KEY is not required at startup - each user configures their own token
+ * Note: GEMINI_API_KEY is optional at startup — each user can configure their own
+ * BYO key (Bring Your Own) which is stored encrypted in their profile.
  */
 export function validateConfig(): void {
-  const requiredVars = [
-    'DATABASE_URL',
-    'JWT_SECRET',
-  ];
+  // In production, an explicit strong JWT_SECRET is mandatory: the API must not
+  // start with a well-known default secret (would allow token forgery).
+  const requiredVars = process.env.NODE_ENV === 'production'
+    ? ['DATABASE_URL', 'JWT_SECRET']
+    : ['DATABASE_URL'];
 
   const missingVars = requiredVars.filter(varName => !process.env[varName]);
 

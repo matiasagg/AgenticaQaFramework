@@ -1,22 +1,103 @@
-[
-  {
-    "title": "Definir la app objetivo del proyecto",
-    "body": "Definir el SaaS base, el caso de uso principal y el alcance MVP.",
-    "labels": ["epic", "p0", "architecture"]
-  },
-  {
-    "title": "Crear backend base",
-    "body": "Implementar API REST con Node.js y TypeScript.",
-    "labels": ["feature", "backend", "p0"]
-  },
-  {
-    "title": "Preparar base del framework Playwright",
-    "body": "Configurar TypeScript, Playwright y estructura de pruebas base.",
-    "labels": ["feature", "sdet", "p1"]
-  },
-  {
-    "title": "Definir estrategia de calidad por riesgo",
-    "body": "Priorizar smoke, regression y flujo crítico.",
-    "labels": ["feature", "qa", "p1"]
-  }
-]
+{
+  "repository": "matiasagg/AgenticaQaFramework",
+  "epic": "https://github.com/matiasagg/AgenticaQaFramework/issues/12",
+  "generatedAt": "2026-09-04",
+  "note": "Respaldo local del backlog. Fuente de verdad: GitHub Issues.",
+  "backlog": [
+    {
+      "id": 12,
+      "title": "[Epic] Backlog producto QA SaaS - MVP y post-MVP",
+      "priority": "P0",
+      "labels": ["enhancement", "planning", "MVP", "p0"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/12"
+    },
+    {
+      "id": 8,
+      "title": "[SDET] Tests automatizados de backend: dorValidator, testSuiteGenerator, auth",
+      "priority": "P0",
+      "area": "backend",
+      "labels": ["enhancement", "backend", "qa", "automation", "MVP", "p0"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/8"
+    },
+    {
+      "id": 2,
+      "title": "[Bug Reports] CRUD completo, cambio de estado y evidencias adjuntas",
+      "priority": "P1",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "MVP", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/2"
+    },
+    {
+      "id": 6,
+      "title": "[Configuracion] Perfil de usuario y API keys propias (BYO key)",
+      "priority": "P1",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "security", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/6"
+    },
+    {
+      "id": 1,
+      "title": "[AI Agents] CRUD de agentes IA + asignacion a proyectos/bugs/tests",
+      "priority": "P1",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "ai", "MVP", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/1"
+    },
+    {
+      "id": 3,
+      "title": "[Test Cases] CRUD de casos de prueba y vinculacion con TestSuites",
+      "priority": "P1",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "MVP", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/3"
+    },
+    {
+      "id": 9,
+      "title": "[Tech Debt] Remover cliente OpenAI no usado y unificar proveedor IA (Gemini)",
+      "priority": "P1",
+      "area": "backend",
+      "labels": ["enhancement", "backend", "ai", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/9"
+    },
+    {
+      "id": 10,
+      "title": "[Security] Migrar multer a 2.x y resolver vulnerabilidades de npm audit",
+      "priority": "P1",
+      "area": "backend",
+      "labels": ["enhancement", "backend", "security", "p1"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/10"
+    },
+    {
+      "id": 4,
+      "title": "[Coverage] Analisis de cobertura de pruebas por proyecto",
+      "priority": "P2",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "qa", "p2"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/4"
+    },
+    {
+      "id": 5,
+      "title": "[Improvement Plans] Planes de mejora personalizados",
+      "priority": "P2",
+      "area": "backend+frontend",
+      "labels": ["enhancement", "backend", "frontend", "qa", "p2"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/5"
+    },
+    {
+      "id": 7,
+      "title": "[Dashboard] Metricas reales agregando datos de todos los modulos",
+      "priority": "P2",
+      "area": "frontend",
+      "labels": ["enhancement", "frontend", "qa", "p2"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/7"
+    },
+    {
+      "id": 11,
+      "title": "[DevOps] CI/CD con GitHub Actions: lint + tsc + tests",
+      "priority": "P2",
+      "area": "infra",
+      "labels": ["enhancement", "automation", "infra", "p2"],
+      "url": "https://github.com/matiasagg/AgenticaQaFramework/issues/11"
+    }
+  ]
+}

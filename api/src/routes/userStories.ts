@@ -174,6 +174,11 @@ router.delete('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Respon
  * Score mínimo para aprobar: 70%
  */
 router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Si `refresh=true`, forzamos re-ejecutar el análisis (incluida la IA).
+  // Por defecto, si ya existe un análisis guardado, se devuelve sin re-consultar
+  // a Gemini (la IA es no-determinista: cada llamada produce un resultado distinto).
+  const forceRefresh = req.query.refresh === 'true';
+
   // Obtener la HDU de la base de datos
   const userStory = await prisma.userStory.findFirst({
     where: { id: req.params.id, userId: req.user!.id },
@@ -181,6 +186,30 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
 
   if (!userStory) {
     throw new ApiError('Historia de usuario no encontrada', 404);
+  }
+
+  // ── Modo caché: devolver el análisis persistido si existe ──
+  // staticAnalysis guarda la validación completa (checklist, score, aiAnalysis).
+  if (!forceRefresh && userStory.staticAnalysis) {
+    const cached = userStory.staticAnalysis as any;
+    // Solo usamos la caché si contiene análisis de IA; si la IA falló en la
+    // validación anterior (aiAnalysis null), conviene reintentar.
+    if (cached?.aiAnalysis) {
+      const cachedValidation = {
+        score: userStory.dorScore ?? cached.qualityScore ?? 0,
+        isReady: userStory.isReady,
+        checklist: cached.checklist || userStory.dorChecklist || [],
+        summary: cached.summary || 'Resultado de validación guardado (usando caché). Usa "Refrescar análisis" para re-evaluar con IA.',
+        recommendations: cached.recommendations || [],
+        cached: true,
+        validatedAt: cached.validatedAt,
+      };
+      return res.json({
+        userStory,
+        validation: cachedValidation,
+        aiAnalysis: cached.aiAnalysis,
+      });
+    }
   }
 
   // Preparar input para validación DoR
@@ -217,6 +246,9 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   ];
 
   // Actualizar la HDU con los resultados combinados
+  // Guardamos TODO el resultado (checklist, summary, recomendaciones y análisis IA)
+  // en staticAnalysis para poder servirlo desde caché en las siguientes llamadas.
+  const validatedAt = new Date().toISOString();
   const updatedStory = await prisma.userStory.update({
     where: { id: req.params.id },
     data: {
@@ -224,8 +256,10 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
       isReady: isReady,
       staticAnalysis: JSON.parse(JSON.stringify({
-        validatedAt: new Date().toISOString(),
+        validatedAt,
         qualityScore: finalScore,
+        summary: validationResult.summary,
+        checklist: validationResult.checklist,
         recommendations: allRecommendations,
         aiAnalysis: aiAnalysis ? {
           score: aiAnalysis.score,
@@ -251,6 +285,8 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       score: finalScore,
       isReady,
       recommendations: allRecommendations,
+      cached: false,
+      validatedAt,
     },
     aiAnalysis,
   });
