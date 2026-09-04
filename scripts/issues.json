@@ -1,0 +1,22 @@
+[
+  {
+    "title": "Definir la app objetivo del proyecto",
+    "body": "Definir el SaaS base, el caso de uso principal y el alcance MVP.",
+    "labels": ["epic", "p0", "architecture"]
+  },
+  {
+    "title": "Crear backend base",
+    "body": "Implementar API REST con Node.js y TypeScript.",
+    "labels": ["feature", "backend", "p0"]
+  },
+  {
+    "title": "Preparar base del framework Playwright",
+    "body": "Configurar TypeScript, Playwright y estructura de pruebas base.",
+    "labels": ["feature", "sdet", "p1"]
+  },
+  {
+    "title": "Definir estrategia de calidad por riesgo",
+    "body": "Priorizar smoke, regression y flujo crítico.",
+    "labels": ["feature", "qa", "p1"]
+  }
+]

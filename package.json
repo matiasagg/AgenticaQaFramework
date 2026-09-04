@@ -1,0 +1,50 @@
+{
+  "name": "qa-saas-platform",
+  "version": "1.0.0",
+  "description": "QA SaaS Platform with AI Agents - Complete solution for QA engineers",
+  "private": true,
+  "workspaces": [
+    "api",
+    "web",
+    "extension"
+  ],
+  "scripts": {
+    "api:dev": "cd api && npm run dev",
+    "api:build": "cd api && npm run build",
+    "api:start": "cd api && npm run start",
+    "api:test": "cd api && npm run test",
+    "api:prisma:generate": "cd api && npx prisma generate",
+    "api:prisma:migrate": "cd api && npx prisma migrate dev",
+    "web:dev": "cd web && npm run dev",
+    "web:build": "cd web && npm run build",
+    "web:test": "cd web && npm run test",
+    "extension:build": "cd extension && npm run build",
+    "dev": "concurrently \"npm run api:dev\" \"npm run web:dev\"",
+    "build": "npm run api:build && npm run web:build && npm run extension:build",
+    "test": "npm run api:test && npm run web:test",
+    "install:all": "npm install && cd api && npm install && cd ../web && npm install && cd ../extension && npm install",
+    "workflow:run": "node workflow/scripts/orchestrator.cjs run",
+    "workflow:status": "node workflow/scripts/orchestrator.cjs status",
+    "workflow:agent:fda": "node workflow/scripts/agent-runner.cjs FDA",
+    "workflow:agent:sdet": "node workflow/scripts/agent-runner.cjs SDET",
+    "workflow:agent:qae": "node workflow/scripts/agent-runner.cjs QAE",
+    "workflow:agent:tla": "node workflow/scripts/agent-runner.cjs TLA",
+    "workflow:agent:poa": "node workflow/scripts/agent-runner.cjs POA",
+    "workflow:agents": "concurrently \"npm run workflow:agent:fda\" \"npm run workflow:agent:sdet\" \"npm run workflow:agent:qae\" \"npm run workflow:agent:tla\" \"npm run workflow:agent:poa\""
+  },
+  "keywords": [
+    "qa",
+    "saas",
+    "ai",
+    "agents",
+    "testing",
+    "automation",
+    "platform"
+  ],
+  "author": "AgenticaQaFramework",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}

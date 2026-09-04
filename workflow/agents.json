@@ -1,0 +1,32 @@
+{
+  "POA": {
+    "role": "Product Owner Agent",
+    "status": "disponible",
+    "currentTask": null
+  },
+  "TLA": {
+    "role": "Tech Lead Agent",
+    "status": "disponible",
+    "currentTask": null
+  },
+  "FDA": {
+    "role": "Fullstack Developer Agent",
+    "status": "disponible",
+    "currentTask": null
+  },
+  "SDET": {
+    "role": "SDET Agent",
+    "status": "disponible",
+    "currentTask": null
+  },
+  "QAE": {
+    "role": "QA Engineer Agent",
+    "status": "disponible",
+    "currentTask": null
+  },
+  "DOA": {
+    "role": "DevOps Agent",
+    "status": "disponible",
+    "currentTask": null
+  }
+}

@@ -1,0 +1,322 @@
+// QA SaaS Platform Database Schema
+// Defines the data models for users, agents, projects, bugs, tests, and evidence
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication and user management
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  avatar    String?
+  role      UserRole @default(QA_ANALYST)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  agents         Agent[]
+  projects       Project[]
+  bugReports     BugReport[]
+  testCases      TestCase[]
+  evidence       Evidence[]
+  coverageAnalysis CoverageAnalysis[]
+  improvementPlans ImprovementPlan[]
+  sessions       Session[]
+  userStories    UserStory[]
+}
+
+// Session model for user authentication
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Agent model for AI agents
+model Agent {
+  id          String      @id @default(cuid())
+  name        String
+  role        AgentRole
+  description String
+  capabilities String[]
+  systemPrompt String
+  isActive    Boolean     @default(true)
+  avatar      String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bugReports  BugReport[]
+  testCases   TestCase[]
+}
+
+// Project model for organizing QA work
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  repository  String?
+  website     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bugReports  BugReport[]
+  testCases   TestCase[]
+  coverageAnalysis CoverageAnalysis[]
+  userStories UserStory[]
+  testSuites  TestSuite[]
+}
+
+// BugReport model for tracking bugs
+model BugReport {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  severity        Severity
+  status          BugStatus @default(OPEN)
+  stepsToReproduce String[]
+  expectedResult  String
+  actualResult    String
+  environment     String?
+  assignee        String?
+  jiraId          String?
+  githubId        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentId         String?
+  agent           Agent?   @relation(fields: [agentId], references: [id])
+  evidence        Evidence[]
+}
+
+// TestCase model for test cases
+model TestCase {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  preconditions   String[]
+  steps           Json     // Array of TestStep objects
+  expectedResults String[]
+  priority        Priority
+  type            TestType
+  status          TestStatus @default(DRAFT)
+  automationStatus AutomationStatus @default(MANUAL)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentId         String?
+  agent           Agent?   @relation(fields: [agentId], references: [id])
+}
+
+// Evidence model for storing screenshots, videos, logs, etc.
+model Evidence {
+  id          String       @id @default(cuid())
+  type        EvidenceType
+  url         String
+  thumbnailUrl String?
+  filename    String
+  size        Int
+  mimeType    String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  // Relations
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bugReportId String?
+  bugReport   BugReport?   @relation(fields: [bugReportId], references: [id])
+}
+
+// CoverageAnalysis model for test coverage analysis
+model CoverageAnalysis {
+  id              String   @id @default(cuid())
+  overallCoverage Float
+  uncoveredAreas  Json     // Array of UncoveredArea objects
+  recommendations String[]
+  generatedAt     DateTime @default(now())
+
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ImprovementPlan model for personalized QA improvement plans
+model ImprovementPlan {
+  id          String   @id @default(cuid())
+  currentSkills Json    // Array of SkillAssessment objects
+  targetSkills  Json    // Array of SkillAssessment objectives
+  actions     Json     // Array of ImprovementAction objects
+  resources   Json     // Array of Resource objects
+  timeline    String
+  progress    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// UserStory (HDU) model for managing user stories and their DoR validation
+model UserStory {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  acceptanceCriteria String[]
+  priority        Priority @default(MEDIUM)
+  storyPoints     Int?
+  status          UserStoryStatus @default(DRAFT)
+  
+  // DoR (Definition of Ready) fields
+  dorScore        Float?   // 0-100 score indicating DoR compliance
+  dorChecklist    Json?    // DoR validation results
+  isReady         Boolean  @default(false)
+  
+  // Static analysis results
+  staticAnalysis  Json?    // Results from static analysis
+  qualityScore    Float?   // Quality score from static analysis
+  
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Generated test suite
+  testSuite       TestSuite?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// TestSuite model for storing generated functional test suites
+model TestSuite {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  testCases       Json     // Array of generated test case objects
+  coverage        Json?    // Coverage analysis results
+  status          TestSuiteStatus @default(DRAFT)
+  
+  // Relations
+  userStoryId     String   @unique
+  userStory       UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Enums
+enum UserRole {
+  QA_ANALYST
+  SDET
+  QA_LEAD
+  ADMIN
+}
+
+enum AgentRole {
+  QA_ENGINEER
+  SDET
+  TECH_LEAD
+  BUG_REPORTER
+  TEST_GENERATOR
+  COVERAGE_ANALYST
+  IMPROVEMENT_PLANNER
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BugStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TestType {
+  FUNCTIONAL
+  REGRESSION
+  EXPLORATORY
+  E2E
+  INTEGRATION
+  PERFORMANCE
+}
+
+enum TestStatus {
+  DRAFT
+  ACTIVE
+  DEPRECATED
+}
+
+enum AutomationStatus {
+  MANUAL
+  AUTOMATED
+  IN_PROGRESS
+}
+
+enum EvidenceType {
+  SCREENSHOT
+  VIDEO
+  LOG
+  FILE
+}
+
+enum UserStoryStatus {
+  DRAFT
+  IN_REVIEW
+  READY
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum TestSuiteStatus {
+  DRAFT
+  GENERATING
+  READY
+  APPROVED
+  ARCHIVED
+}

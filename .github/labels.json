@@ -1,0 +1,77 @@
+[
+  {
+    "name": "hdu",
+    "color": "0E8A16",
+    "description": "Historia de Usuario"
+  },
+  {
+    "name": "alta",
+    "color": "B60205",
+    "description": "Prioridad alta - Crítico para MVP"
+  },
+  {
+    "name": "media",
+    "color": "FEF2C0",
+    "description": "Prioridad media - Importante pero no bloqueante"
+  },
+  {
+    "name": "baja",
+    "color": "C5DEF5",
+    "description": "Prioridad baja - Nice to have"
+  },
+  {
+    "name": "frontend",
+    "color": "1D76DB",
+    "description": "Cambios en frontend (React)"
+  },
+  {
+    "name": "backend",
+    "color": "0075CA",
+    "description": "Cambios en backend (Express/Prisma)"
+  },
+  {
+    "name": "fullstack",
+    "color": "5319E7",
+    "description": "Cambios en frontend y backend"
+  },
+  {
+    "name": "bug",
+    "color": "D93F0B",
+    "description": "Bug reportado por QA"
+  },
+  {
+    "name": "en-progress",
+    "color": "FBCA04",
+    "description": "En desarrollo activo"
+  },
+  {
+    "name": "code-review",
+    "color": "5319E7",
+    "description": "En revisión de código"
+  },
+  {
+    "name": "testing",
+    "color": "0075CA",
+    "description": "En fase de pruebas"
+  },
+  {
+    "name": "blocked",
+    "color": "B60205",
+    "description": "Bloqueado - necesita atención"
+  },
+  {
+    "name": "documentation",
+    "color": "0075CA",
+    "description": "Cambios en documentación"
+  },
+  {
+    "name": "devops",
+    "color": "C5DEF5",
+    "description": "CI/CD, infraestructura, deploy"
+  },
+  {
+    "name": "good-first-issue",
+    "color": "7057FF",
+    "description": "Buena tarea para empezar"
+  }
+]
