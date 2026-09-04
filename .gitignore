@@ -37,7 +37,37 @@ test-results/
 playwright-report/
 coverage/
 
+# Reportes de test
+# Artefactos generados por los runners: no deben versionarse porque inflan el
+# repo, ensucian los diffs de los PRs y generan conflictos de merge constantes.
+allure-results/
+allure-report/
+test-output/
+cucumber-reports/
+reports/
+.pytest_cache/
+htmlcov/
+
+# Java / JVM
+# Nota: NO ignorar *.jar de forma generica. Si se agrega el Gradle wrapper,
+# gradle/wrapper/gradle-wrapper.jar SI debe versionarse, y un patron *.jar
+# lo excluiria de forma silenciosa y dificil de diagnosticar.
+*.class
+target/
+out/
+.gradle/
+
+# Caches de build del frontend
+.vite/
+web/.vite/
+
 # Temporary
 tmp/
 temp/
 *.tmp
+
+# Artefactos de comandos mal formados
+# Una carpeta llamada "-p" se crea cuando un flag se interpreta como ruta.
+-p/
+
+
