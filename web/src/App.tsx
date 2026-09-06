@@ -9,6 +9,7 @@ import CoveragePage from './pages/CoveragePage'
 import PlansPage from './pages/PlansPage'
 import EpicsPage from './pages/EpicsPage'
 import TestPlansPage from './pages/TestPlansPage'
+import GitHubSyncPage from './pages/GitHubSyncPage'
 import UserStoriesPage from './pages/UserStoriesPage'
 import SettingsPage from './pages/SettingsPage'
 import LoginPage from './pages/LoginPage'
@@ -39,7 +40,8 @@ function App() {
         <Route path="coverage" element={<CoveragePage />} />
 <Route path="plans" element={<PlansPage />} />
 <Route path="epics" element={<EpicsPage />} />
-        <Route path="test-plans" element={<TestPlansPage />} />
+<Route path="test-plans" element={<TestPlansPage />} />
+        <Route path="github-sync" element={<GitHubSyncPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       

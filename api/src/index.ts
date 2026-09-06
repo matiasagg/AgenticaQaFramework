@@ -15,6 +15,7 @@ import userStoryRoutes from './routes/userStories';
 import epicRoutes from './routes/epics';
 import chatRoutes from './routes/chat';
 import testPlanRoutes from './routes/testPlans';
+import githubSyncRoutes from './routes/githubSync';
 
 /**
  * QA SaaS Platform - Main API Server Entry Point
@@ -69,6 +70,7 @@ async function startServer() {
     app.use('/api/epics', epicRoutes);
     app.use('/api/chat', chatRoutes);
     app.use('/api/test-plans', testPlanRoutes);
+    app.use('/api/github-sync', githubSyncRoutes);
     
     // Error handling middleware
     app.use(errorHandler);

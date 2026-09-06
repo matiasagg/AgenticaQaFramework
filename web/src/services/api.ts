@@ -242,6 +242,43 @@ export const coverageApi = {
   },
 }
 
+// GitHub Sync services
+export const githubSyncApi = {
+  previewIssues: async (projectId: string, state: string = 'open') => {
+    const response = await api.get(`/github-sync/${projectId}/issues`, { params: { state } })
+    return response.data
+  },
+
+  importIssues: async (projectId: string, data: {
+    issueNumbers: number[]
+    epicId?: string
+    featureId?: string
+  }) => {
+    const response = await api.post(`/github-sync/${projectId}/import`, data)
+    return response.data
+  },
+
+  getBranches: async (projectId: string) => {
+    const response = await api.get(`/github-sync/${projectId}/branches`)
+    return response.data
+  },
+
+  getPulls: async (projectId: string, state: string = 'open') => {
+    const response = await api.get(`/github-sync/${projectId}/pulls`, { params: { state } })
+    return response.data
+  },
+
+  associateBranch: async (projectId: string, data: {
+    userStoryId: string
+    branchName: string
+    prNumber?: string
+    prUrl?: string
+  }) => {
+    const response = await api.put(`/github-sync/${projectId}/associate-branch`, data)
+    return response.data
+  },
+}
+
 // Plans services
 export const plansApi = {
   getAll: async () => {
