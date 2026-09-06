@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const response = await authApi.getProfile()
           setUser(response.user)
         } catch (error) {
-          // Token inválido o expirado
+          // Token inválido, expirado o la sesión ya no existe en BD
           localStorage.removeItem('token')
           setToken(null)
           setUser(null)

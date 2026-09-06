@@ -66,8 +66,10 @@ export const config = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   
   // GitHub integration
-  github: {
-    token: process.env.GITHUB_TOKEN || '',
+  get github() {
+    return {
+      token: process.env.GITHUB_TOKEN || '',
+    };
   },
   
   // Jira integration

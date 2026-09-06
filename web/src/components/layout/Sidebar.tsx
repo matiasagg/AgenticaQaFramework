@@ -2,15 +2,20 @@ import { NavLink } from 'react-router-dom'
 
 /**
  * Sidebar Navigation Component
- * 
+ *
  * Displays the main navigation menu with links to:
  * - Dashboard
  * - AI Agents
  * - Projects
+ * - User Stories (HDU)
+ * - Epics
+ * - Test Plans
+ * - GitHub Sync
  * - Bug Reports
  * - Test Cases
  * - Coverage Analysis
  * - Improvement Plans
+ * - Settings
  */
 export default function Sidebar() {
   const navItems = [
@@ -22,6 +27,9 @@ export default function Sidebar() {
     { to: '/tests', label: 'Test Cases', icon: '✅' },
     { to: '/coverage', label: 'Coverage', icon: '📈' },
     { to: '/plans', label: 'Improvement Plans', icon: '🎯' },
+    { to: '/epics', label: 'Epics', icon: '🔥' },
+    { to: '/test-plans', label: 'Test Plans', icon: '📋' },
+    { to: '/github-sync', label: 'GitHub Sync', icon: '🔗' },
     { to: '/settings', label: 'Configuración', icon: '⚙️' },
   ]
 

@@ -1,10 +1,15 @@
-import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Request, Response, NextFunction } from 'express';
+import { PrismaClient, PrismaClientKnownRequestError } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 
 // Apply authentication to all routes
 router.use(authenticateToken);
@@ -13,7 +18,7 @@ router.use(authenticateToken);
  * GET /api/users/me
  * Get current user profile
  */
-router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/me', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
@@ -28,7 +33,7 @@ router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
     });
 
     if (!user) {
-      throw new ApiError('User not found', 404);
+      throw new ApiError('Session invalid or expired', 401);
     }
 
     res.json({ user });
@@ -38,13 +43,13 @@ router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
     }
     throw new ApiError('Failed to fetch user profile', 500);
   }
-});
+}));
 
 /**
  * PUT /api/users/me
  * Update current user profile
  */
-router.put('/me', async (req: AuthenticatedRequest, res: Response) => {
+router.put('/me', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, avatar } = req.body;
 
@@ -63,8 +68,12 @@ router.put('/me', async (req: AuthenticatedRequest, res: Response) => {
 
     res.json({ user });
   } catch (error) {
+    if (error instanceof PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new ApiError('Session invalid or expired', 401);
+    }
+
     throw new ApiError('Failed to update user profile', 500);
   }
-});
+}));
 
 export default router;
