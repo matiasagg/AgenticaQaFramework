@@ -16,6 +16,7 @@ import {
   fetchBranches,
   fetchPullRequests,
   mapIssueToUserStory,
+  buildIssueDescription,
 } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
 
@@ -109,8 +110,7 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
   for (const issue of toImport) {
     try {
       const mapped = mapIssueToUserStory(issue);
-      // Agregar referencia al issue en la descripción
-      const descriptionWithRef = `${mapped.description}\n\n---\n🔗 Issue: ${mapped.githubUrl}`;
+      const descriptionWithRef = buildIssueDescription(mapped.description, mapped.githubUrl);
 
       const userStory = await prisma.userStory.create({
         data: {
@@ -122,7 +122,17 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
           userId: req.user!.id,
           epicId: epicId || null,
           featureId: featureId || null,
-          status: 'DRAFT',
+          status: 'NEW',
+          workflowState: 'NEW',
+          externalSystem: 'GITHUB',
+          externalId: String(issue.id),
+          externalUrl: mapped.githubUrl,
+          syncStatus: 'SYNCED',
+          syncMetadata: {
+            issueNumber: issue.number,
+            source: 'github',
+            importedAt: new Date().toISOString(),
+          },
         },
       });
       imported.push({ id: userStory.id, title: userStory.title, issueNumber: issue.number });

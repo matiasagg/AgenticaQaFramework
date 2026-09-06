@@ -13,6 +13,11 @@ import { ApiError } from '../middleware/errorHandler';
 import { validateDoR, UserStoryInput } from '../services/dorValidator';
 import { generateTestSuite, UserStoryForGeneration } from '../services/testSuiteGenerator';
 import { analyzeUserStoryWithAI } from '../services/geminiAI';
+import {
+  advanceStoryStatus,
+  buildAiStoryRecommendations,
+  normalizeExternalStatus,
+} from '../services/storyWorkflow';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -77,7 +82,9 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       storyPoints,
       projectId,
       userId: req.user!.id,
-      status: 'DRAFT',
+      status: 'NEW',
+      workflowState: 'NEW',
+      syncStatus: 'UNSYNCED',
     },
     include: {
       project: true,
@@ -188,6 +195,14 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     throw new ApiError('Historia de usuario no encontrada', 404);
   }
 
+  const workflowRecommendation = buildAiStoryRecommendations({
+    title: userStory.title,
+    description: userStory.description,
+    acceptanceCriteria: userStory.acceptanceCriteria,
+    priority: userStory.priority,
+    storyPoints: userStory.storyPoints || undefined,
+  });
+
   // ── Modo caché: devolver el análisis persistido si existe ──
   // staticAnalysis guarda la validación completa (checklist, score, aiAnalysis).
   if (!forceRefresh && userStory.staticAnalysis) {
@@ -237,6 +252,12 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     ? Math.round(validationResult.score * 0.6 + aiAnalysis.score * 0.4)
     : validationResult.score;
 
+  const workflowState = advanceStoryStatus({
+    currentStatus: normalizeExternalStatus(String(userStory.status || 'NEW')),
+    dorScore: finalScore,
+    isReady: finalScore >= 70 && validationResult.isReady,
+  });
+
   const isReady = finalScore >= 70 && validationResult.isReady;
 
   // Combinar recomendaciones
@@ -270,7 +291,9 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         } : null,
       })),
       qualityScore: finalScore,
-      status: isReady ? 'READY' : 'IN_REVIEW',
+      status: workflowState.nextStatus,
+      workflowState: workflowState.nextStatus,
+      isReady,
     },
     include: {
       project: true,
@@ -287,6 +310,9 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       recommendations: allRecommendations,
       cached: false,
       validatedAt,
+      nextStatus: workflowState.nextStatus,
+      canAdvance: workflowState.canAdvance,
+      aiRecommendation: workflowRecommendation,
     },
     aiAnalysis,
   });
@@ -331,7 +357,8 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
           dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
           isReady: validationResult.isReady,
           qualityScore: validationResult.score,
-          status: validationResult.isReady ? 'READY' : 'IN_REVIEW',
+          status: validationResult.isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
+          workflowState: validationResult.isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
         },
       });
 
@@ -380,7 +407,10 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
   // Actualizar estado de la HDU
   await prisma.userStory.update({
     where: { id: req.params.id },
-    data: { status: 'IN_PROGRESS' },
+    data: {
+      status: 'IN_DEVELOPMENT',
+      workflowState: 'IN_DEVELOPMENT',
+    },
   });
 
   res.status(201).json({
