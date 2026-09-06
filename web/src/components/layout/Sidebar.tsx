@@ -22,6 +22,9 @@ export default function Sidebar() {
     { to: '/tests', label: 'Test Cases', icon: '✅' },
     { to: '/coverage', label: 'Coverage', icon: '📈' },
     { to: '/plans', label: 'Improvement Plans', icon: '🎯' },
+    { to: '/epics', label: 'Epics', icon: '🔥' },
+    { to: '/test-plans', label: 'Test Plans', icon: '📋' },
+    { to: '/github-sync', label: 'GitHub Sync', icon: '🔗' },
     { to: '/settings', label: 'Configuración', icon: '⚙️' },
   ]
 
