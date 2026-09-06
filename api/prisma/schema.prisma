@@ -12,14 +12,17 @@ datasource db {
 
 // User model for authentication and user management
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String
-  avatar    String?
-  role      UserRole @default(QA_ANALYST)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String
+  name        String
+  avatar      String?
+  role        UserRole @default(QA_ANALYST)
+  // BYO (Bring Your Own) Gemini API key — encriptado en reposo.
+  // Si está vacío, se usa la clave global de la aplicación (GEMINI_API_KEY).
+  geminiApiKey String? // Almacenado encriptado (ver utils/encryption.ts)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
   agents         Agent[]

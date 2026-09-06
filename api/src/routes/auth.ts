@@ -8,6 +8,10 @@ import { ApiError } from '../middleware/errorHandler';
 const router = Router();
 const prisma = new PrismaClient();
 
+// expiresIn in recent @types/jsonwebtoken versions only accepts StringValue
+// (e.g. "7d") or a number of seconds; we narrow the config string to that type.
+const jwtExpiresIn = config.jwt.expiresIn as jwt.SignOptions['expiresIn'];
+
 // Wrapper for async route handlers
 const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => 
   (req: Request, res: Response, next: NextFunction) => {
@@ -46,7 +50,7 @@ router.post('/register', asyncHandler(async (req: Request, res: Response) => {
   const token = jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn }
+    { expiresIn: jwtExpiresIn }
   );
 
   res.status(201).json({
@@ -88,7 +92,7 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
   const token = jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn }
+    { expiresIn: jwtExpiresIn }
   );
 
   res.json({
