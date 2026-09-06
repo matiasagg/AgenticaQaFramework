@@ -1,0 +1,40 @@
+{
+  "hdu-001": {
+    "id": "HDU-001",
+    "title": "Lista de Bugs con filtros",
+    "priority": "Alta",
+    "status": "Pendiente",
+    "assignee": "FDA",
+    "branch": null,
+    "createdAt": "2026-08-31T21:00:00Z",
+    "completedAt": null,
+    "acceptanceCriteria": [
+      "Tabla responsive con lista de bugs",
+      "Filtros por severidad (critical, high, medium, low)",
+      "Filtros por estado (open, in-progress, resolved, closed)",
+      "Busqueda por titulo o descripcion",
+      "Acciones rapidas (ver detalle, editar, eliminar)"
+    ]
+  },
+  "hdu-002": {
+    "id": "HDU-002",
+    "title": "Detalle de Bug con evidencias",
+    "priority": "Alta",
+    "status": "Pendiente",
+    "assignee": "FDA",
+    "dependencies": ["HDU-001"],
+    "branch": null,
+    "createdAt": "2026-08-31T21:00:00Z",
+    "completedAt": null
+  },
+  "hdu-003": {
+    "id": "HDU-003",
+    "title": "Lista de Casos de Prueba",
+    "priority": "Alta",
+    "status": "Pendiente",
+    "assignee": "FDA",
+    "branch": null,
+    "createdAt": "2026-08-31T21:00:00Z",
+    "completedAt": null
+  }
+}

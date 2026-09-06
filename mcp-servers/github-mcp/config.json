@@ -1,0 +1,94 @@
+{
+  "name": "github-mcp-server",
+  "version": "1.0.0",
+  "description": "Servidor MCP para integración con GitHub - AgenticaQaFramework",
+  "tools": [
+    {
+      "name": "create-issue",
+      "description": "Crea un nuevo issue en GitHub",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Título del issue"
+        },
+        "body": {
+          "type": "string",
+          "description": "Descripción del issue"
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Labels del issue"
+        },
+        "assignees": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Usuarios asignados"
+        }
+      }
+    },
+    {
+      "name": "list-issues",
+      "description": "Lista issues del repositorio",
+      "parameters": {
+        "state": {
+          "type": "string",
+          "enum": ["open", "closed", "all"],
+          "default": "open"
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Filtrar por labels"
+        }
+      }
+    },
+    {
+      "name": "close-issue",
+      "description": "Cierra un issue existente",
+      "parameters": {
+        "issue_number": {
+          "type": "number",
+          "description": "Número del issue"
+        }
+      }
+    },
+    {
+      "name": "create-pr",
+      "description": "Crea un pull request",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Título del PR"
+        },
+        "body": {
+          "type": "string",
+          "description": "Descripción del PR"
+        },
+        "head": {
+          "type": "string",
+          "description": "Rama source"
+        },
+        "base": {
+          "type": "string",
+          "description": "Rama destino"
+        }
+      }
+    },
+    {
+      "name": "sync-labels",
+      "description": "Sincroniza labels del repositorio",
+      "parameters": {
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Lista de labels a crear"
+        }
+      }
+    }
+  ],
+  "repository": {
+    "owner": "matiasagg",
+    "name": "AgenticaQaFramework"
+  }
+}

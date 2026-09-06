@@ -1,0 +1,43 @@
+# AgenticaQaFramework - Git Ignore
+
+# Dependencies
+node_modules/
+vendor/
+.venv/
+__pycache__/
+
+# Build
+dist/
+build/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Testing
+test-results/
+playwright-report/
+coverage/
+
+# Temporary
+tmp/
+temp/
+*.tmp
