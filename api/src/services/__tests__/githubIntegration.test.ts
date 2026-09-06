@@ -13,6 +13,7 @@ import type { GitHubIssue } from '../githubIntegration'
 import {
   parseRepoUrl,
   mapIssueToUserStory,
+  buildIssueDescription,
   fetchIssues,
   fetchBranches,
   fetchPullRequests,
@@ -237,6 +238,17 @@ describe('githubIntegration service', () => {
       const mapped = mapIssueToUserStory(issue)
       expect(mapped.description).toBe('Issue with no body')
       expect(mapped.acceptanceCriteria).toEqual([])
+    })
+
+    it('should keep the real GitHub issue description and append the original link once', () => {
+      const realDescription = 'La pantalla de login falla al cargar la sesión.'
+      const githubUrl = 'https://github.com/owner/repo/issues/42'
+
+      const result = buildIssueDescription(realDescription, githubUrl)
+
+      expect(result).toContain(realDescription)
+      expect(result).toContain('Issue original: https://github.com/owner/repo/issues/42')
+      expect(result.indexOf(realDescription)).toBeLessThan(result.indexOf('Issue original:'))
     })
   })
 
