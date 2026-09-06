@@ -169,6 +169,7 @@ model Project {
   name        String
   description String
   repository  String?
+  githubToken String?
   website     String?
   defaultBranch String? @default("main")
   isActive    Boolean  @default(true)

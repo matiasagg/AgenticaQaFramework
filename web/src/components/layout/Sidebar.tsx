@@ -2,15 +2,20 @@ import { NavLink } from 'react-router-dom'
 
 /**
  * Sidebar Navigation Component
- * 
+ *
  * Displays the main navigation menu with links to:
  * - Dashboard
  * - AI Agents
  * - Projects
+ * - User Stories (HDU)
+ * - Epics
+ * - Test Plans
+ * - GitHub Sync
  * - Bug Reports
  * - Test Cases
  * - Coverage Analysis
  * - Improvement Plans
+ * - Settings
  */
 export default function Sidebar() {
   const navItems = [

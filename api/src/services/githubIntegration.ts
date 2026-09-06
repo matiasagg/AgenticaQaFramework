@@ -41,15 +41,25 @@ export function parseRepoUrl(repoUrl: string): { owner: string; repo: string } |
  * @param state - Estado de los issues a traer (open, closed, all)
  * @returns Lista de issues
  */
+function getGitHubToken(tokenOverride?: string | null): string {
+  const token = (tokenOverride ?? process.env.GITHUB_TOKEN ?? config.github.token ?? '').trim();
+
+  if (!token || /^your[-_ ]?github/i.test(token) || /placeholder|example|sample/i.test(token)) {
+    throw new Error('GITHUB_TOKEN no configurado. Configura un token real de GitHub en el proyecto o en api/.env');
+  }
+
+  return token;
+}
+
 export async function fetchIssues(
   repoUrl: string,
-  state: 'open' | 'closed' | 'all' = 'open'
+  state: 'open' | 'closed' | 'all' = 'open',
+  tokenOverride?: string | null
 ): Promise<GitHubIssue[]> {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
 
-  const token = config.github.token;
-  if (!token) throw new Error('GITHUB_TOKEN no configurado. Configura el token en variables de entorno.');
+  const token = getGitHubToken(tokenOverride);
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/issues?state=${state}&per_page=100`;
 
@@ -151,12 +161,14 @@ function mapPriority(labels: string[]): string {
  * @param repoUrl - URL del repositorio
  * @returns Lista de nombres de ramas
  */
-export async function fetchBranches(repoUrl: string): Promise<string[]> {
+export async function fetchBranches(
+  repoUrl: string,
+  tokenOverride?: string | null
+): Promise<string[]> {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
 
-  const token = config.github.token;
-  if (!token) throw new Error('GITHUB_TOKEN no configurado.');
+  const token = getGitHubToken(tokenOverride);
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/branches?per_page=100`;
 
@@ -185,13 +197,13 @@ export async function fetchBranches(repoUrl: string): Promise<string[]> {
  */
 export async function fetchPullRequests(
   repoUrl: string,
-  state: 'open' | 'closed' | 'all' = 'open'
+  state: 'open' | 'closed' | 'all' = 'open',
+  tokenOverride?: string | null
 ): Promise<Array<{ number: number; title: string; branch: string; url: string; state: string }>> {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
 
-  const token = config.github.token;
-  if (!token) throw new Error('GITHUB_TOKEN no configurado.');
+  const token = getGitHubToken(tokenOverride);
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/pulls?state=${state}&per_page=100`;
 
@@ -204,13 +216,14 @@ export async function fetchPullRequests(
   });
 
   if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status}`);
+    const error = await response.text();
+    throw new Error(`GitHub API error: ${response.status} - ${error}`);
   }
 
   const prs = (await response.json()) as Array<{
     number: number;
     title: string;
-    head: { ref: string };
+    head?: { ref?: string };
     html_url: string;
     state: string;
   }>;
@@ -218,7 +231,7 @@ export async function fetchPullRequests(
   return prs.map((pr) => ({
     number: pr.number,
     title: pr.title,
-    branch: pr.head.ref,
+    branch: pr.head?.ref || 'unknown',
     url: pr.html_url,
     state: pr.state,
   }));

@@ -17,6 +17,7 @@ import {
   fetchPullRequests,
   mapIssueToUserStory,
 } from '../services/githubIntegration';
+import { decryptApiKey } from '../utils/encryption';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -40,7 +41,8 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
   if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
 
   const state = (req.query.state as 'open' | 'closed' | 'all') || 'open';
-  const issues = await fetchIssues(project.repository, state);
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const issues = await fetchIssues(project.repository, state, token);
 
   // Detectar cuáles issues ya fueron importados (por número guardado en title prefix)
   const existingStories = await prisma.userStory.findMany({
@@ -93,7 +95,8 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
     if (!feature) throw new ApiError('Feature no encontrada', 404);
   }
 
-  const allIssues = await fetchIssues(project.repository, 'all');
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const allIssues = await fetchIssues(project.repository, 'all', token);
   const toImport = allIssues.filter((i) => issueNumbers.includes(i.number));
 
   if (toImport.length === 0) {
@@ -150,7 +153,8 @@ router.get('/:projectId/branches', asyncHandler(async (req: AuthenticatedRequest
   if (!project) throw new ApiError('Proyecto no encontrado', 404);
   if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
 
-  const branches = await fetchBranches(project.repository);
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const branches = await fetchBranches(project.repository, token);
   res.json({ branches });
 }));
 
@@ -166,7 +170,8 @@ router.get('/:projectId/pulls', asyncHandler(async (req: AuthenticatedRequest, r
   if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
 
   const state = (req.query.state as 'open' | 'closed' | 'all') || 'open';
-  const pulls = await fetchPullRequests(project.repository, state);
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const pulls = await fetchPullRequests(project.repository, state, token);
   res.json({ pulls });
 }));
 

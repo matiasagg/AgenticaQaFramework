@@ -32,9 +32,12 @@ api.interceptors.response.use(
     // Only redirect to login if the error is NOT from auth endpoints
     const url = error.config?.url || ''
     const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register')
-    
-    if (error.response?.status === 401 && !isAuthEndpoint) {
-      // Token expired or invalid - only redirect for protected endpoints
+    const isSessionProblem =
+      error.response?.status === 401 ||
+      (error.response?.status === 404 && url.includes('/users/me'))
+
+    if (isSessionProblem && !isAuthEndpoint) {
+      // Token expired or invalid - clear stale session and redirect to login
       localStorage.removeItem('token')
       window.location.href = '/login'
     }
@@ -131,7 +134,7 @@ export const projectsApi = {
     return response.data
   },
 
-  create: async (data: { name: string; description: string; repository?: string; website?: string }) => {
+  create: async (data: { name: string; description: string; repository?: string; website?: string; githubToken?: string }) => {
     const response = await api.post('/projects', data)
     return response.data
   },
@@ -275,6 +278,35 @@ export const githubSyncApi = {
     prUrl?: string
   }) => {
     const response = await api.put(`/github-sync/${projectId}/associate-branch`, data)
+    return response.data
+  },
+}
+
+// Epics services
+export const epicsApi = {
+  getAll: async (projectId?: string) => {
+    const params = projectId ? { params: { projectId } } : {}
+    const response = await api.get('/epics', params)
+    return response.data
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/epics/${id}`)
+    return response.data
+  },
+
+  create: async (data: { name: string; description: string; projectId: string }) => {
+    const response = await api.post('/epics', data)
+    return response.data
+  },
+
+  update: async (id: string, data: Partial<{ name: string; description: string; status: string }>) => {
+    const response = await api.put(`/epics/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/epics/${id}`)
     return response.data
   },
 }

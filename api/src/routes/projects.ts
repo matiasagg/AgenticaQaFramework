@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
+import { decryptApiKey, encryptApiKey } from '../utils/encryption';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -14,22 +15,39 @@ const asyncHandler = (fn: (req: any, res: Response, next: NextFunction) => Promi
 
 router.use(authenticateToken);
 
+const sanitizeProject = (project: any) => {
+  if (!project) return project;
+
+  const { githubToken, ...safeProject } = project;
+  return {
+    ...safeProject,
+    githubTokenConfigured: Boolean(githubToken),
+  };
+};
+
 // GET /api/projects - Get all projects
 router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const projects = await prisma.project.findMany({
     where: { userId: req.user!.id },
     orderBy: { createdAt: 'desc' },
   });
-  res.json({ projects });
+  res.json({ projects: projects.map(sanitizeProject) });
 }));
 
 // POST /api/projects - Create project
 router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { name, description, repository, website } = req.body;
+  const { name, description, repository, website, githubToken } = req.body;
   const project = await prisma.project.create({
-    data: { name, description, repository, website, userId: req.user!.id },
+    data: {
+      name,
+      description,
+      repository,
+      website,
+      githubToken: githubToken ? encryptApiKey(String(githubToken).trim()) : null,
+      userId: req.user!.id,
+    },
   });
-  res.status(201).json({ project });
+  res.status(201).json({ project: sanitizeProject(project) });
 }));
 
 // GET /api/projects/:id - Get project by ID
@@ -38,19 +56,36 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     where: { id: req.params.id, userId: req.user!.id },
   });
   if (!project) throw new ApiError('Project not found', 404);
-  res.json({ project });
+  res.json({ project: sanitizeProject(project) });
 }));
 
 // PUT /api/projects/:id - Update project
 router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { name, description, repository, website, isActive } = req.body;
-  const result = await prisma.project.updateMany({
+  const { name, description, repository, website, isActive, githubToken } = req.body;
+
+  const existingProject = await prisma.project.findFirst({
     where: { id: req.params.id, userId: req.user!.id },
-    data: { name, description, repository, website, isActive },
   });
-  if (result.count === 0) throw new ApiError('Project not found', 404);
-  const updatedProject = await prisma.project.findUnique({ where: { id: req.params.id } });
-  res.json({ project: updatedProject });
+  if (!existingProject) throw new ApiError('Project not found', 404);
+
+  const data: Record<string, any> = {};
+
+  if (Object.prototype.hasOwnProperty.call(req.body, 'name')) data.name = name;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'description')) data.description = description;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'repository')) data.repository = repository ?? null;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'website')) data.website = website ?? null;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'isActive')) data.isActive = isActive;
+
+  if (Object.prototype.hasOwnProperty.call(req.body, 'githubToken')) {
+    data.githubToken = githubToken === null || githubToken === '' ? null : encryptApiKey(String(githubToken).trim());
+  }
+
+  const updatedProject = await prisma.project.update({
+    where: { id: req.params.id },
+    data,
+  });
+
+  res.json({ project: sanitizeProject(updatedProject) });
 }));
 
 // DELETE /api/projects/:id - Delete project
