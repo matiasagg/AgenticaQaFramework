@@ -16,6 +16,7 @@ interface Project {
   description: string
   repository: string | null
   website: string | null
+  githubTokenConfigured?: boolean
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -26,6 +27,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
 
   // Form state
@@ -34,6 +36,7 @@ export default function ProjectsPage() {
     description: '',
     repository: '',
     website: '',
+    githubToken: '',
   })
 
   useEffect(() => {
@@ -53,19 +56,52 @@ export default function ProjectsPage() {
     }
   }
 
+  const resetForm = () => {
+    setFormData({ name: '', description: '', repository: '', website: '', githubToken: '' })
+    setEditingProjectId(null)
+  }
+
+  const openCreateForm = () => {
+    resetForm()
+    setShowForm(true)
+  }
+
+  const openEditForm = (project: Project) => {
+    setEditingProjectId(project.id)
+    setFormData({
+      name: project.name,
+      description: project.description,
+      repository: project.repository || '',
+      website: project.website || '',
+      githubToken: '',
+    })
+    setShowForm(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.post('/projects', {
+      const payload: any = {
         ...formData,
         repository: formData.repository || undefined,
         website: formData.website || undefined,
-      })
+      }
+
+      if (formData.githubToken.trim()) {
+        payload.githubToken = formData.githubToken.trim()
+      }
+
+      if (editingProjectId) {
+        await api.put(`/projects/${editingProjectId}`, payload)
+      } else {
+        await api.post('/projects', payload)
+      }
+
       setShowForm(false)
-      setFormData({ name: '', description: '', repository: '', website: '' })
+      resetForm()
       fetchProjects()
     } catch (error: any) {
-      alert(error?.response?.data?.error?.message || 'Error al crear el proyecto')
+      alert(error?.response?.data?.error?.message || `Error al ${editingProjectId ? 'actualizar' : 'crear'} el proyecto`)
     }
   }
 
@@ -100,7 +136,7 @@ export default function ProjectsPage() {
           </p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={openCreateForm}
           className="btn-primary"
         >
           + Nuevo Proyecto
@@ -115,11 +151,14 @@ export default function ProjectsPage() {
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Nuevo Proyecto
+                  {editingProjectId ? 'Editar Proyecto' : 'Nuevo Proyecto'}
                 </h2>
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => {
+                    setShowForm(false)
+                    resetForm()
+                  }}
                   className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
                   ✕
@@ -183,16 +222,35 @@ export default function ProjectsPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  GitHub PAT (opcional)
+                </label>
+                <input
+                  type="password"
+                  value={formData.githubToken}
+                  onChange={(e) => setFormData(prev => ({ ...prev, githubToken: e.target.value }))}
+                  className="input-field"
+                  placeholder="ghp_..."
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Deja este campo vacío para conservar el PAT actual. Se guarda cifrado y se usa solo para este repositorio.
+                </p>
+              </div>
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => {
+                    setShowForm(false)
+                    resetForm()
+                  }}
                   className="btn-secondary"
                 >
                   Cancelar
                 </button>
                 <button type="submit" className="btn-primary">
-                  Crear Proyecto
+                  {editingProjectId ? 'Guardar Cambios' : 'Crear Proyecto'}
                 </button>
               </div>
             </form>
@@ -241,6 +299,11 @@ export default function ProjectsPage() {
                       </a>
                     )}
                   </div>
+                  <div className="mt-3 flex items-center gap-2 text-xs">
+                    <span className={`px-2 py-1 rounded-full ${project.githubTokenConfigured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {project.githubTokenConfigured ? 'GitHub PAT configurado' : 'Sin PAT de GitHub'}
+                    </span>
+                  </div>
                   <p className="text-xs text-gray-400 mt-2">
                     Creado: {new Date(project.createdAt).toLocaleDateString()}
                   </p>
@@ -251,6 +314,12 @@ export default function ProjectsPage() {
                     className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
                   >
                     Ver
+                  </button>
+                  <button
+                    onClick={() => openEditForm(project)}
+                    className="px-3 py-1 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
+                  >
+                    Editar
                   </button>
                   <button
                     onClick={() => handleDelete(project.id)}
@@ -299,6 +368,12 @@ export default function ProjectsPage() {
                   </a>
                 </div>
               )}
+              <div>
+                <span className="text-sm font-medium text-gray-500">GitHub:</span>
+                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${selectedProject.githubTokenConfigured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                  {selectedProject.githubTokenConfigured ? 'PAT configurado' : 'Sin PAT configurado'}
+                </span>
+              </div>
               {selectedProject.website && (
                 <div>
                   <span className="text-sm font-medium text-gray-500">Website:</span>
@@ -325,7 +400,16 @@ export default function ProjectsPage() {
                 </span>
               </div>
             </div>
-            <div className="flex justify-end mt-6">
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  openEditForm(selectedProject)
+                  setSelectedProject(null)
+                }}
+                className="btn-secondary"
+              >
+                Editar
+              </button>
               <button
                 onClick={() => setSelectedProject(null)}
                 className="btn-secondary"

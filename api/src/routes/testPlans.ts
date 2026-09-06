@@ -1,0 +1,113 @@
+/**
+ * Test Plan Routes
+ * CRUD para planes de prueba que agrupan suites de tests.
+ */
+import { Router, Response, NextFunction } from 'express';
+import { PrismaClient } from '@prisma/client';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
+import { ApiError } from '../middleware/errorHandler';
+
+const router = Router();
+const prisma = new PrismaClient();
+
+const asyncHandler = (fn: (req: any, res: Response, next: NextFunction) => Promise<any>) =>
+  (req: any, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+
+router.use(authenticateToken);
+
+// GET /api/test-plans - Obtener todos los planes de prueba
+router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { projectId } = req.query;
+  const where: any = { project: { userId: req.user!.id } };
+  if (projectId) where.projectId = projectId as string;
+
+  const testPlans = await prisma.testPlan.findMany({
+    where,
+    include: {
+      project: true,
+      testSuites: { include: { userStory: true } },
+      userStories: { select: { id: true, title: true, status: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json({ testPlans });
+}));
+
+// POST /api/test-plans - Crear plan de prueba
+router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { name, description, projectId } = req.body;
+  if (!name || !projectId) {
+    throw new ApiError('Faltan campos requeridos: name, projectId', 400);
+  }
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId: req.user!.id },
+  });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+
+  const testPlan = await prisma.testPlan.create({
+    data: { name, description, projectId },
+    include: { project: true, testSuites: true },
+  });
+  res.status(201).json({ testPlan });
+}));
+
+// GET /api/test-plans/:id - Obtener plan por ID
+router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const testPlan = await prisma.testPlan.findFirst({
+    where: { id: req.params.id, project: { userId: req.user!.id } },
+    include: {
+      project: true,
+      testSuites: { include: { userStory: true } },
+      userStories: true,
+    },
+  });
+  if (!testPlan) throw new ApiError('TestPlan no encontrado', 404);
+  res.json({ testPlan });
+}));
+
+// PUT /api/test-plans/:id - Actualizar plan
+router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { name, description, status } = req.body;
+  const existing = await prisma.testPlan.findFirst({
+    where: { id: req.params.id, project: { userId: req.user!.id } },
+  });
+  if (!existing) throw new ApiError('TestPlan no encontrado', 404);
+
+  const testPlan = await prisma.testPlan.update({
+    where: { id: req.params.id },
+    data: { ...(name && { name }), ...(description && { description }), ...(status && { status }) },
+    include: { project: true, testSuites: true },
+  });
+  res.json({ testPlan });
+}));
+
+// DELETE /api/test-plans/:id - Eliminar plan
+router.delete('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const result = await prisma.testPlan.deleteMany({
+    where: { id: req.params.id, project: { userId: req.user!.id } },
+  });
+  if (result.count === 0) throw new ApiError('TestPlan no encontrado', 404);
+  res.json({ message: 'TestPlan eliminado correctamente' });
+}));
+
+// POST /api/test-plans/:id/associate-suite - Asociar suite existente al plan
+router.post('/:id/associate-suite', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { suiteId } = req.body;
+  if (!suiteId) throw new ApiError('Falta suiteId', 400);
+
+  const testPlan = await prisma.testPlan.findFirst({
+    where: { id: req.params.id, project: { userId: req.user!.id } },
+  });
+  if (!testPlan) throw new ApiError('TestPlan no encontrado', 404);
+
+  const suite = await prisma.testSuite.update({
+    where: { id: suiteId },
+    data: { testPlanId: testPlan.id },
+  });
+  res.json({ suite, message: 'Suite asociada al plan' });
+}));
+
+export default router;

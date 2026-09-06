@@ -85,6 +85,35 @@ export interface TestStep {
   expectedResult: string
 }
 
+export interface TestSuite {
+  id: string
+  title: string
+  description: string
+  testCases: TestCase[] | any[]
+  coverage?: unknown
+  environment?: string
+  testData?: unknown
+  profiling?: unknown
+  status: string
+  userStoryId?: string
+  testPlanId?: string
+  projectId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TestPlan {
+  id: string
+  name: string
+  description: string
+  status: string
+  projectId: string
+  testSuites?: TestSuite[]
+  userStories?: any[]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CoverageAnalysis {
   id: string
   projectId: string
