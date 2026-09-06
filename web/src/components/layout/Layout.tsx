@@ -8,6 +8,7 @@
 import { Outlet, Navigate } from 'react-router-dom'
 import Navbar from './Navbar'
 import Sidebar from './Sidebar'
+import ChatAI from '../chat/ChatAI'
 import { useAuth } from '../../contexts/AuthContext'
 
 export default function Layout() {
@@ -39,6 +40,8 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+      {/* Chat IA global disponible en todas las páginas */}
+      <ChatAI />
     </div>
   )
 }
