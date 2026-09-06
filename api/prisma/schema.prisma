@@ -151,6 +151,7 @@ model TestPlan {
   projectId   String
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   testSuites  TestSuite[]
+  userStories UserStory[]
 
   @@index([projectId])
 }
