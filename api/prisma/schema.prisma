@@ -61,10 +61,105 @@ model Agent {
   updatedAt   DateTime    @updatedAt
 
   // Relations
-  userId      String
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bugReports  BugReport[]
-  testCases   TestCase[]
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bugReports      BugReport[]
+  testCases       TestCase[]
+  agentAssignments AgentAssignment[]
+  generatedSuites TestSuite[] @relation("GeneratedBy")
+}
+
+// Agent Assignment - Tabla intermedia para asignar agentes a HDUs con roles
+model AgentAssignment {
+  id          String   @id @default(cuid())
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  userStoryId String
+  userStory   UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  role        AgentAssignmentRole @default(TEST_GENERATOR)
+  assignedAt  DateTime @default(now())
+
+  @@unique([agentId, userStoryId])
+}
+
+enum AgentAssignmentRole {
+  TEST_GENERATOR
+  TEST_REVIEWER
+  TEST_EXECUTOR
+  DOR_VALIDATOR
+  BUG_REPORTER
+}
+
+// Epic model for grouping features and user stories
+model Epic {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  status      EpicStatus @default(PLANNING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  features    Feature[]
+  userStories UserStory[]
+
+  @@index([projectId])
+}
+
+enum EpicStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+// Feature model for grouping user stories within an epic
+model Feature {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  status      FeatureStatus @default(DRAFT)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  epicId      String
+  epic        Epic     @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  userStories UserStory[]
+
+  @@index([epicId])
+}
+
+enum FeatureStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
+// TestPlan model for organizing test suites
+model TestPlan {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  status      TestPlanStatus @default(DRAFT)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testSuites  TestSuite[]
+
+  @@index([projectId])
+}
+
+enum TestPlanStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
 }
 
 // Project model for organizing QA work
@@ -74,18 +169,21 @@ model Project {
   description String
   repository  String?
   website     String?
+  defaultBranch String? @default("main")
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bugReports  BugReport[]
-  testCases   TestCase[]
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bugReports      BugReport[]
+  testCases       TestCase[]
   coverageAnalysis CoverageAnalysis[]
-  userStories UserStory[]
-  testSuites  TestSuite[]
+  userStories     UserStory[]
+  testSuites      TestSuite[]
+  epics           Epic[]
+  testPlans       TestPlan[]
 }
 
 // BugReport model for tracking bugs
@@ -199,25 +297,44 @@ model UserStory {
   priority        Priority @default(MEDIUM)
   storyPoints     Int?
   status          UserStoryStatus @default(DRAFT)
-  
+
   // DoR (Definition of Ready) fields
-  dorScore        Float?   // 0-100 score indicating DoR compliance
-  dorChecklist    Json?    // DoR validation results
+  dorScore        Float?
+  dorChecklist    Json?
   isReady         Boolean  @default(false)
-  
+
   // Static analysis results
-  staticAnalysis  Json?    // Results from static analysis
-  qualityScore    Float?   // Quality score from static analysis
-  
+  staticAnalysis  Json?
+  qualityScore    Float?
+
+  // GitHub integration fields
+  branchName      String?
+  prNumber        String?
+  prUrl           String?
+  commitSha       String?
+
   // Relations
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId       String
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
-  // Generated test suite
+  epicId          String?
+  epic            Epic?    @relation(fields: [epicId], references: [id])
+  featureId       String?
+  feature         Feature? @relation(fields: [featureId], references: [id])
+  parentStoryId   String?
+  parentStory     UserStory? @relation("StoryHierarchy", fields: [parentStoryId], references: [id])
+  subStories      UserStory[] @relation("StoryHierarchy")
+  testPlanId      String?
+  testPlan        TestPlan? @relation(fields: [testPlanId], references: [id])
   testSuite       TestSuite?
-  
+  agentAssignments AgentAssignment[]
+
+  @@index([projectId])
+  @@index([epicId])
+  @@index([featureId])
+  @@index([testPlanId])
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -228,15 +345,25 @@ model TestSuite {
   title           String
   description     String
   testCases       Json     // Array of generated test case objects
-  coverage        Json?    // Coverage analysis results
+  coverage        Json?
+  environment     String?  @default("staging")
+  testData        Json?
+  profiling       Json?
   status          TestSuiteStatus @default(DRAFT)
-  
+
   // Relations
-  userStoryId     String   @unique
-  userStory       UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userStoryId     String?  @unique
+  userStory       UserStory? @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
   projectId       String
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
+  testPlanId      String?
+  testPlan        TestPlan? @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
+  generatedById   String?
+  generatedBy     Agent?   @relation("GeneratedBy", fields: [generatedById], references: [id])
+
+  @@index([projectId])
+  @@index([testPlanId])
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

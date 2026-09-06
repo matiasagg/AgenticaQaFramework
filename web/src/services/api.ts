@@ -164,6 +164,22 @@ export const agentsApi = {
     const response = await api.put(`/agents/${id}`, { isActive })
     return response.data
   },
+
+  update: async (id: string, data: {
+    name: string
+    role: string
+    description: string
+    capabilities: string[]
+    systemPrompt: string
+  }) => {
+    const response = await api.put(`/agents/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/agents/${id}`)
+    return response.data
+  },
 }
 
 // Tests services
@@ -189,6 +205,26 @@ export const testsApi = {
     projectId: string
   }) => {
     const response = await api.post('/tests', data)
+    return response.data
+  },
+
+  update: async (id: string, data: Partial<{
+    title: string
+    description: string
+    preconditions: string[]
+    steps: { order: number; action: string; expectedResult: string }[]
+    expectedResults: string[]
+    priority: string
+    type: string
+    status: string
+    automationStatus: string
+  }>) => {
+    const response = await api.put(`/tests/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/tests/${id}`)
     return response.data
   },
 }

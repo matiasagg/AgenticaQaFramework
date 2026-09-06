@@ -28,5 +28,9 @@
 
 ## Consideraciones de mantenimiento
   - Monitorear cuotas de uso de servicios free-tier para evitar interrupciones.
-  - Mantener respaldo de configuraciones MCP en el repositorio del proyecto.
+  - Versionar en el repositorio **únicamente manifiestos sin credenciales** (por ejemplo `mcp-servers/*/config.json`, que documentan qué servidores y tools usa el equipo).
+  - **NUNCA** versionar `cline_mcp_settings.json` ni ningún archivo que contenga credenciales. Ese archivo vive fuera del repo (en `AppData` en Windows) y suele contener tokens como `GITHUB_PERSONAL_ACCESS_TOKEN` o API keys. Copiarlo al repositorio equivale a publicar esas credenciales.
+  - Al documentar configuraciones, usar rutas genéricas o variables de entorno en lugar de rutas absolutas: una ruta como `C:\Users\<usuario>\AppData\...` filtra el nombre de usuario local.
   - Revisar periódicamente si las herramientas utilizadas siguen siendo gratuitas y activas.
+
+

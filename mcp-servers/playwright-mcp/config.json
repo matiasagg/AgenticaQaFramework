@@ -1,0 +1,56 @@
+{
+  "name": "github.com/executeautomation/mcp-playwright",
+  "version": "1.0.10",
+  "description": "MCP server that provides browser automation capabilities using Playwright - AgenticaQaFramework",
+  "npmPackage": "@executeautomation/playwright-mcp-server",
+  "repository": {
+    "owner": "executeautomation",
+    "name": "mcp-playwright"
+  },
+  "features": [
+    "browser_automation",
+    "screenshots",
+    "web_scraping",
+    "javascript_execution",
+    "test_code_generation",
+    "device_emulation"
+  ],
+  "tools": [
+    {
+      "name": "playwright_navigate",
+      "description": "Navigate to a URL in the browser"
+    },
+    {
+      "name": "playwright_snapshot",
+      "description": "Take a snapshot of the current page DOM"
+    },
+    {
+      "name": "playwright_resize",
+      "description": "Resize the browser viewport or emulate a device"
+    },
+    {
+      "name": "playwright_click",
+      "description": "Click on an element on the page"
+    },
+    {
+      "name": "playwright_type",
+      "description": "Type text into an input field"
+    },
+    {
+      "name": "playwright_press",
+      "description": "Press a keyboard key"
+    },
+    {
+      "name": "playwright_drag",
+      "description": "Drag and drop an element"
+    },
+    {
+      "name": "playwright_expect",
+      "description": "Make assertions about page content"
+    },
+    {
+      "name": "playwright_console",
+      "description": "Interact with browser console"
+    }
+  ]
+}

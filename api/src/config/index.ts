@@ -7,6 +7,26 @@ dotenv.config();
  * Centralized configuration for the QA SaaS Platform API
  * All environment variables are loaded and validated here
  */
+const defaultCorsOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:5175',
+];
+
+const parseCorsOrigins = () => {
+  const raw = process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || defaultCorsOrigins.join(',');
+
+  return Array.from(new Set(
+    raw
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  ));
+};
+
 export const config = {
   // Server configuration
   port: parseInt(process.env.PORT || '3001', 10),
@@ -14,6 +34,9 @@ export const config = {
   
   // Database configuration
   databaseUrl: process.env.DATABASE_URL || '',
+
+  // CORS configuration
+  corsOrigins: parseCorsOrigins(),
   
   // JWT configuration
   // NOTE: In production, JWT_SECRET is REQUIRED (validateConfig enforces it).

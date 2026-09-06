@@ -55,6 +55,7 @@ export interface Agent {
   role: string
   description: string
   capabilities: string[]
+  systemPrompt?: string
   isActive: boolean
   avatar?: string
   createdAt: string
@@ -71,6 +72,7 @@ export interface TestCase {
   priority: Priority
   type: TestType
   status: TestStatus
+  automationStatus?: 'MANUAL' | 'AUTOMATED' | 'IN_PROGRESS'
   projectId: string
   agentId?: string
   createdAt: string

@@ -7,6 +7,7 @@ import BugsPage from './pages/BugsPage'
 import TestsPage from './pages/TestsPage'
 import CoveragePage from './pages/CoveragePage'
 import PlansPage from './pages/PlansPage'
+import EpicsPage from './pages/EpicsPage'
 import UserStoriesPage from './pages/UserStoriesPage'
 import SettingsPage from './pages/SettingsPage'
 import LoginPage from './pages/LoginPage'
@@ -35,7 +36,8 @@ function App() {
         <Route path="bugs" element={<BugsPage />} />
         <Route path="tests" element={<TestsPage />} />
         <Route path="coverage" element={<CoveragePage />} />
-        <Route path="plans" element={<PlansPage />} />
+<Route path="plans" element={<PlansPage />} />
+        <Route path="epics" element={<EpicsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       

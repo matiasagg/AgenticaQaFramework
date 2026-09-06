@@ -29,7 +29,14 @@ async function startServer() {
     
     // Middleware
     app.use(cors({
-      origin: config.frontendUrl,
+      origin: (origin, callback) => {
+        if (!origin || config.corsOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error(`CORS policy: origin ${origin} is not allowed`));
+      },
       credentials: true,
     }));
     app.use(express.json({ limit: '10mb' }));
