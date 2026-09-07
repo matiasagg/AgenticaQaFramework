@@ -11,6 +11,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useAuth } from '../../contexts/AuthContext'
+import BrandLogo from '../BrandLogo'
 
 export default function Navbar() {
   const { theme, toggleTheme } = useTheme()
@@ -23,11 +24,11 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="bg-white border-b border-gray-200 fixed w-full top-0 z-50 dark:bg-gray-800 dark:border-gray-700">
-      <div className="px-6 py-3 flex items-center justify-between">
+    <nav className="bg-white border-b border-gray-200 w-full z-50 dark:bg-gray-800 dark:border-gray-700">
+      <div className="px-6 py-3 flex items-center justify-between h-16">
         <div className="flex items-center space-x-4">
-          <Link to="/dashboard" className="text-xl font-bold text-primary-600">
-            QA SaaS Platform
+          <Link to="/dashboard" className="inline-flex items-center">
+            <BrandLogo compact className="origin-left" />
           </Link>
         </div>
         
