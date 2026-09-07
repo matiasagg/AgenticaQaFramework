@@ -88,6 +88,27 @@ export async function fetchIssues(
  * @param issue - Issue de GitHub
  * @returns Datos listos para crear una UserStory
  */
+export function buildIssueDescription(description: string | null | undefined, githubUrl: string): string {
+  const normalizedDescription = (description ?? '').trim();
+  const issueReference = `\n\n---\n🔗 Issue original: ${githubUrl}`;
+
+  if (!normalizedDescription) {
+    return `Issue original: ${githubUrl}`;
+  }
+
+  const alreadyHasReference = normalizedDescription.toLowerCase().includes(githubUrl.toLowerCase())
+    || normalizedDescription.toLowerCase().includes('issue original:');
+
+  if (alreadyHasReference) {
+    const cleanedDescription = normalizedDescription
+      .replace(/\n\s*---\s*\n\s*🔗\s*Issue(?:\s+original)?:\s*https?:\/\/[^\s]+\s*$/i, '')
+      .trim();
+    return `${cleanedDescription || normalizedDescription}${issueReference}`;
+  }
+
+  return `${normalizedDescription}${issueReference}`;
+}
+
 export function mapIssueToUserStory(issue: GitHubIssue): {
   title: string;
   description: string;

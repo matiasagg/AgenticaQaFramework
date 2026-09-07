@@ -16,6 +16,7 @@ import {
   fetchBranches,
   fetchPullRequests,
   mapIssueToUserStory,
+  buildIssueDescription,
 } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
 

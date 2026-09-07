@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
   const mockFetchBranches = vi.fn()
   const mockFetchPullRequests = vi.fn()
   const mockMapIssueToUserStory = vi.fn()
+  const mockBuildIssueDescription = vi.fn((description: string, githubUrl: string) => `${description}\n\n---\n🔗 Issue original: ${githubUrl}`)
 
   return {
     mockUserId,
@@ -57,6 +58,7 @@ const mocks = vi.hoisted(() => {
     mockFetchBranches,
     mockFetchPullRequests,
     mockMapIssueToUserStory,
+    mockBuildIssueDescription,
   }
 })
 
@@ -84,6 +86,7 @@ vi.mock('../../services/githubIntegration', () => ({
   fetchBranches: (...args: any[]) => mocks.mockFetchBranches(...args),
   fetchPullRequests: (...args: any[]) => mocks.mockFetchPullRequests(...args),
   mapIssueToUserStory: (...args: any[]) => mocks.mockMapIssueToUserStory(...args),
+  buildIssueDescription: (...args: any[]) => mocks.mockBuildIssueDescription(...args),
   parseRepoUrl: vi.fn(),
 }))
 
@@ -134,6 +137,7 @@ describe('GitHub Sync Routes', () => {
     vi.resetAllMocks()
     // El mapeo por defecto de un issue
     mocks.mockMapIssueToUserStory.mockReturnValue(mockMapped)
+    mocks.mockBuildIssueDescription.mockImplementation((description: string, githubUrl: string) => `${description}\n\n---\n🔗 Issue original: ${githubUrl}`)
     // Por defecto, el proyecto existe con repository configurado
     mocks.mockPrisma.project.findFirst.mockResolvedValue(mockProject)
     mocks.mockPrisma.userStory.findMany.mockResolvedValue([])

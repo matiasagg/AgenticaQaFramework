@@ -298,7 +298,7 @@ model UserStory {
   acceptanceCriteria String[]
   priority        Priority @default(MEDIUM)
   storyPoints     Int?
-  status          UserStoryStatus @default(DRAFT)
+  status          UserStoryStatus @default(NEW)
 
   // External sync identity
   externalSystem  String?
@@ -316,6 +316,16 @@ model UserStory {
   // Static analysis results
   staticAnalysis  Json?
   qualityScore    Float?
+
+  // Workflow / lifecycle fields
+  workflowState   UserStoryStatus @default(NEW)
+  lastStatusChangeAt DateTime?
+  syncStatus      SyncStatus @default(UNSYNCED)
+  externalSystem  String?
+  externalId      String?
+  externalUrl     String?
+  syncMetadata    Json?
+  syncedAt        DateTime?
 
   // GitHub integration fields
   branchName      String?
@@ -447,12 +457,26 @@ enum EvidenceType {
 }
 
 enum UserStoryStatus {
-  DRAFT
-  IN_REVIEW
-  READY
-  IN_PROGRESS
-  COMPLETED
-  REJECTED
+  NEW
+  IN_ANALYSIS
+  DOR_IN_PROGRESS
+  DOR_DONE
+  READY_FOR_DEVELOPMENT
+  IN_DEVELOPMENT
+  READY_FOR_QA
+  DOD_IN_PROGRESS
+  DOD_DONE
+  DONE
+  BLOCKED
+  CANCELLED
+  ARCHIVED
+}
+
+enum SyncStatus {
+  UNSYNCED
+  SYNCED
+  OUT_OF_SYNC
+  MANUAL
 }
 
 enum SyncStatus {
