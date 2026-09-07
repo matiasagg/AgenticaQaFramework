@@ -190,7 +190,12 @@ export function hasGitHubIssueChanged(issue: GitHubIssue, syncedAt?: Date | stri
 /**
  * Extrae criterios de aceptación del cuerpo de un issue.
  * Busca secciones comunes: "Criterios de aceptación", "Acceptance Criteria",
- * o listas con checkboxes.
+ * listas con checkboxes o un único párrafo bajo el encabezado.
+ *
+ * Estrategias en orden:
+ * 1. Sección con bullets (- / * / checkbox) → cada bullet es un criterio.
+ * 2. Sección sin bullets → toma los párrafos (uno o más) que siguen al header.
+ * 3. Fallback global → busca cualquier bullet/checkbox en todo el cuerpo.
  */
 function extractAcceptanceCriteria(body: string): string[] {
   if (!body) return [];
@@ -198,14 +203,36 @@ function extractAcceptanceCriteria(body: string): string[] {
   // Buscar sección de criterios de aceptación
   const sectionRegex = /(?:criterios?\s+de\s+aceptaci[oó]n|acceptance\s+criteria)[:\s]*\n?((?:\s*[-*]\s*.+\n?)*)/i;
   const sectionMatch = body.match(sectionRegex);
-  if (sectionMatch?.[1]) {
-    return sectionMatch[1]
-      .split('\n')
-      .map((line) => line.replace(/^[\s*+-]+/, '').trim())
-      .filter((line) => line.length > 0);
+
+  if (sectionMatch) {
+    const sectionContent = (sectionMatch[1] || '').trim();
+
+    // Caso 1: criterios listados con bullets dentro de la sección
+    if (sectionContent) {
+      const bulletCriteria = sectionContent
+        .split('\n')
+        .map((line) => line.replace(/^[\s*+-]+/, '').trim())
+        .filter((line) => line.length > 0);
+      if (bulletCriteria.length > 0) return bulletCriteria.slice(0, 10);
+    }
+
+    // Caso 2: sin bullets CSS. Tomamos el texto de la sección completa
+    // y lo partimos por líneas en blanco (párrafos).
+    const headerIndex = body.search(sectionRegex);
+    const afterHeader = body.slice(headerIndex + (sectionMatch[0] || '').length).trim();
+
+    // El texto hasta el siguiente encabezado "## " o hasta el fin del body
+    const rawSection = afterHeader.split(/^##\s+/m)[0]?.trim() || '';
+    if (rawSection.length >= 10) {
+      return rawSection
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter((p) => p.length >= 10)
+        .slice(0, 10);
+    }
   }
 
-  // Fallback: buscar checkboxes o listas con guiones
+  // Fallback: buscar checkboxes o listas con guiones en todo el body
   const lines = body.split('\n');
   const criteria = lines
     .filter((line) => /^\s*[-*]\s+\[?[ x]?\]?/.test(line))

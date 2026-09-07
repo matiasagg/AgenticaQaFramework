@@ -94,6 +94,28 @@ describe('DoR Validator Service', () => {
       expect(result.recommendations.some((r) => r.includes('formato'))).toBe(true);
     });
 
+    it('debe aceptar formato Markdown multilinea exactamente como GitHub (HDU-27)', () => {
+      const story = {
+        ...validUserStory,
+        description: [
+          '## 📋 Mostrar en el reporte DoR, que punto de la HDU a mejorar',
+          '',
+          '**ID:** HDU-012',
+          '**Prioridad:** [Alta]',
+          '**Agente Asignado:** [FDA/SDET/QAE/DOA/TLA/POA]',
+          '',
+          '## Descripción',
+          '**Como** [usuario del SaaS]',
+          '**Quiero** [que en el informe del analisis del DoR muestre que puntos de la HDU esta relacionado con la mejora propuesta]',
+          '**Para** [mejorar la lectura del informe y el hands-on]',
+        ].join('\n'),
+      };
+      const result = validateDoR(story);
+
+      const descCheck = result.checklist.find((c) => c.id === 'description');
+      expect(descCheck?.passed).toBe(true);
+    });
+
     it('debe aceptar formato en inglés "As..., I want..., so that..."', () => {
       const story = {
         ...validUserStory,
@@ -126,12 +148,12 @@ describe('DoR Validator Service', () => {
       expect(criteriaCheck?.passed).toBe(false);
     });
 
-    it('debe fallar con solo 1 criterio (mínimo 2)', () => {
-      const story = { ...validUserStory, acceptanceCriteria: ['Debe funcionar correctamente'] };
+    it('debe aprobar con un solo criterio válido (mínimo 1)', () => {
+      const story = { ...validUserStory, acceptanceCriteria: ['El informe del DoR muestra los puntos de la HDU relacionados al comentario'] };
       const result = validateDoR(story);
 
       const criteriaCheck = result.checklist.find((c) => c.id === 'acceptanceCriteria');
-      expect(criteriaCheck?.passed).toBe(false);
+      expect(criteriaCheck?.passed).toBe(true);
     });
 
     it('debe fallar con criterios muy cortos (menos de 10 caracteres)', () => {
@@ -201,6 +223,28 @@ describe('DoR Validator Service', () => {
       const ambiguityCheck = result.checklist.find((c) => c.id === 'noAmbiguity');
       expect(ambiguityCheck?.passed).toBe(true);
     });
+
+    it('NO debe marcar "mejor" dentro de "mejorar" (regresión HDU-27)', () => {
+      const story = {
+        ...validUserStory,
+        description: 'Como usuario, quiero ver el informe de análisis para mejorar la lectura y el hands-on',
+      };
+      const result = validateDoR(story);
+
+      const ambiguityCheck = result.checklist.find((c) => c.id === 'noAmbiguity');
+      expect(ambiguityCheck?.passed).toBe(true);
+    });
+
+    it('NO debe marcar "fácil" dentro de "difícil"', () => {
+      const story = {
+        ...validUserStory,
+        description: 'Como usuario, quiero verificar que el proceso no sea difícil para completar la tarea',
+      };
+      const result = validateDoR(story);
+
+      const ambiguityCheck = result.checklist.find((c) => c.id === 'noAmbiguity');
+      expect(ambiguityCheck?.passed).toBe(true);
+    });
   });
 
   describe('Validación de criterios testeables', () => {
@@ -220,6 +264,17 @@ describe('DoR Validator Service', () => {
 
     it('debe pasar con criterios que contienen verbos verificables', () => {
       const result = validateDoR(validUserStory);
+
+      const testableCheck = result.checklist.find((c) => c.id === 'testableCriteria');
+      expect(testableCheck?.passed).toBe(true);
+    });
+
+    it('debe aceptar el criterio real de HDU-27 que usa el verbo "muestra"', () => {
+      const story = {
+        ...validUserStory,
+        acceptanceCriteria: ['El informe del DoR muestra los puntos de la HDU relacionados al comentario'],
+      };
+      const result = validateDoR(story);
 
       const testableCheck = result.checklist.find((c) => c.id === 'testableCriteria');
       expect(testableCheck?.passed).toBe(true);

@@ -155,48 +155,93 @@ function validateTitle(title: string): DorCheckItem {
 }
 
 /**
- * Valida que la descripción siga el formato estándar de historia de usuario
+ * Normaliza el texto de la descripción para el análisis.
+ *
+ * Convierte el texto plano de GitHub (Markdown) en un formato continuo
+ * para que el regex de validación pueda reconocer las tres partes:
+ * "Como ... ", "quiero ...", "para ...".
+ *
+ * Estrategias de normalización:
+ * 1. Elimina las etiquetas de negrita de Markdown (**texto**)
+ * 2. Convierte saltos de línea en comas para manejar descripciones
+ *    donde cada segmento viene en una línea separada.
+ *
+ * @param raw - Texto original de la descripción
+ * @returns Texto normalizado para el análisis
+ */
+function normalizeDescriptionText(raw: string): string {
+  return raw
+    // Quita los asteriscos de negrita de Markdown: **Como** → Como
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    // Convierte saltos de línea en comas: "Como...\nQuiero...\nPara..." → "Como..., Quiero..., Para..."
+    .replace(/\r?\n+/g, ", ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/**
+ * Valida que la descripción siga el formato estándar de historia de usuario.
+ *
+ * Acepta tanto el formato clásico en una sola línea:
+ *   "Como [rol], quiero [acción], para [beneficio]"
+ * como el formato Markdown multilinea usado en GitHub:
+ *   "**Como** [rol]
+ *    **Quiero** [acción]
+ *    **Para** [beneficio]"
  */
 function validateDescription(description: string): DorCheckItem {
-  const formatRegex = /como\s+.+,\s*quiero\s+.+,\s*para\s+.+/i;
-  const altFormatRegex = /as\s+.+,\s*I\s+want\s+.+,\s*so\s+that\s+.+/i;
-  const hasFormat = formatRegex.test(description) || altFormatRegex.test(description);
-  const minLength = description.length >= 30;
+  // Normalizamos el texto para tolerar Markdown y descripciones multilínea
+  const normalizedDescription = normalizeDescriptionText(description);
+
+  // Formato en español: "Como ..., quiero ..., para ..."
+  const formatRegex = /como\s+.+?,\s*quiero\s+.+?,\s*para\s+.+/i;
+  // Formato en inglés: "As ..., I want ..., so that ..."
+  const altFormatRegex = /as\s+.+?,\s*i\s+want\s+.+?,\s*so\s+that\s+.+/i;
+
+  // La HDU de GitHub puede incluir los formatos como headers separados:
+  // "**ID:** ...", "**Prioridad:** ..." antes de llegar a la parte **Como**.
+  // Con la normalización los saltos y negritas ya fueron resueltos.
+  const hasFormat = formatRegex.test(normalizedDescription) || altFormatRegex.test(normalizedDescription);
+  const minLength = description.length >= 25;
 
   const passed = hasFormat && minLength;
 
   return {
     id: 'description',
     name: 'Descripción con formato estándar',
-    description: 'La descripción debe seguir el formato: "Como [rol], quiero [acción], para [beneficio]"',
+    description: 'La descripción debe seguir el formato: "Como [usuario], quiero [acción], para [beneficio]"',
     passed,
     weight: 25,
-    suggestion : passed ? undefined :
-      !hasFormat ? 'Usa el formato estándar: "Como [rol], quiero [acción], para [beneficio]"' :
-      'La descripción es muy corta. Agrega más detalles sobre la funcionalidad.',
+    suggestion: passed ? undefined :
+      !hasFormat
+        ? 'Usa el formato estándar: "Como [rol], quiero [acción], para [beneficio]"'
+        : 'La descripción es muy corta. Agrega más detalles sobre la funcionalidad.',
   };
 }
 
 /**
- * Valida que existan criterios de aceptación definidos
+ * Valida que existan criterios de aceptación definidos.
+ *
+ * Se reduce el mínimo de 2 a 1 porque es aceptable que una HDU tenga
+ * un único criterio de aceptación claro y verificable; exigir 2 rechazaba
+ * historias legítimas importadas desde GitHub que solo definieron uno.
  */
 function validateAcceptanceCriteria(criteria: string[]): DorCheckItem {
   const hasCriteria = criteria.length > 0;
-  const minCriteria = criteria.length >= 2;
   const allValid = criteria.every(c => c.length >= 10);
 
-  const passed = hasCriteria && minCriteria && allValid;
+  const passed = hasCriteria && allValid;
 
   return {
     id: 'acceptanceCriteria',
     name: 'Criterios de aceptación definidos',
-    description: 'Debe haber al menos 2 criterios de aceptación, cada uno con al menos 10 caracteres',
+    description: 'Debe haber al menos 1 criterio de aceptación con 10 o más caracteres',
     passed,
     weight: 25,
     suggestion: passed ? undefined :
-      !hasCriteria ? 'Agrega criterios de aceptación para definir cuándo la historia está completa.' :
-      !minCriteria ? 'Agrega al menos 2 criterios de aceptación para una mejor cobertura.' :
-      'Algunos criterios son muy cortos. Cada criterio debe tener al menos 10 caracteres.',
+      !hasCriteria
+        ? 'Agrega criterios de aceptación para definir cuándo la historia está completa.'
+        : 'Algunos criterios de aceptación son muy cortos. Redactalos con al menos 10 caracteres y describe el resultado observable.',
   };
 }
 
@@ -238,17 +283,52 @@ function validateStoryPoints(storyPoints?: number): DorCheckItem {
 }
 
 /**
- * Valida que la descripción no contenga términos ambiguos
+ * Verifica si el texto contiene una palabra ambigua como palabra completa.
+ *
+ * Usa delimitadores de palabra que incluyen letras acentuadas en español
+ * para evitar falsos positivos:
+ *   - "mejorar" NO debe marcar "mejor" (palabra completa distinta)
+ *   - "fácil" NO debe marcar "difícil"
+ *
+ * @param text - Texto de la descripción a revisar
+ * @param [term] - Término ambiguo buscado (ej: "mejor")
+ * @returns Índice donde aparece la palabra o -1 (usado en combo con filter)
+ */
+function containsAmbiguousTerm(text: string, term: string): boolean {
+  const lowercaseText = ` ${text.toLowerCase()} `;
+  // Delimitadores: espacios, saltos de línea, comas, puntos, paréntesis, corchetes y guiones de Markdown
+  const boundaryPattern = /[\s,.;:()¡!¿?\[\]{}*_\-\n]/;
+  const index = lowercaseText.indexOf(term);
+
+  if (index === -1) return false;
+
+  const before = lowercaseText[(index - 1)] ?? '';
+  const after = lowercaseText[(index + term.length)] ?? '';
+  // La palabra debe estar delimitada para que sea una palabra completa y no un prefijo
+  // Ej: "mejorar" no debe activar "mejor"
+  return (
+    (before.length === 0 || boundaryPattern.test(before)) &&
+    (after.length === 0 || boundaryPattern.test(after))
+  );
+}
+
+/**
+ * Valida que la descripción no contenga términos ambiguos.
+ *
+ * Solo se marcan términos cuando aparecen como palabras completas
+ * (no cuando forman parte de otra palabra), evitando falsos positivos.
  */
 function validateNoAmbiguity(description: string): DorCheckItem {
   const ambiguousTerms = [
-    'etc', 'etc.', 'y otros', 'y demás', 'algo', 'cosas',
-    'más o menos', 'másomenos', 'quizás', 'tal vez', 'puede ser',
-    'bueno', 'rápido', 'fácil', 'simple', 'mejor', 'optimizar'
+    'etc', 'y otros', 'y demas', 'y demás', 'algo', 'cosas',
+    'mas o menos', 'más o menos', 'másomenos', 'masomenos',
+    'quizas', 'quizás', 'tal vez', 'puede ser',
+    'bueno', 'rapido', 'rápido', 'facil', 'fácil',
+    'simple', 'mejor', 'optimizar', 'optimizado'
   ];
   
-  const foundTerms = ambiguousTerms.filter(term => 
-    description.toLowerCase().includes(term.toLowerCase())
+  const foundTerms = ambiguousTerms.filter(term =>
+    containsAmbiguousTerm(description, term)
   );
 
   const passed = foundTerms.length === 0;
@@ -265,17 +345,28 @@ function validateNoAmbiguity(description: string): DorCheckItem {
 }
 
 /**
- * Valida que los criterios de aceptación sean testeables
+ * Valida que los criterios de aceptación sean testeables.
+ *
+ * Se amplió el vocabulario de palabra clave con verbos conjugados en
+ * español que se usan comúnmente en las HDUs reales de GitHub ("muestra",
+ * "muestre", "genera", "envía", etc.) para reducir falsos negativos.
  */
 function validateTestableCriteria(criteria: string[]): DorCheckItem {
   const testableKeywords = [
-    'debe', 'deberá', 'deberia', 'should', 'must', 'will',
+    // Verbos modales en español/inglés
+    'debe', 'debería', 'deberá', 'should', 'must', 'will',
+    // Verbos de verificación
     'verificar', 'comprobar', 'validar', 'check', 'verify',
-    'mostrar', 'display', 'return', 'retornar', 'enviar', 'send'
+    // Verbos de acción/resultado observable
+    'mostrar', 'muestra', 'muestre', 'presentar', 'desplegar', 'display',
+    'generar', 'genera', 'genere', 'crear', 'crea', 'retornar', 'return',
+    'enviar', 'envía', 'envie', 'send', 'listar', 'lista', 'listar',
+    'actualiza', 'actualizar', 'permita', 'permitir', 'permite',
+    'enviar', 'envía', 'recibir', 'recibe', 'cargar', 'descargar',
   ];
 
   const hasTestableCriteria = criteria.length > 0 && criteria.some(criterion =>
-    testableKeywords.some(keyword => 
+    testableKeywords.some(keyword =>
       criterion.toLowerCase().includes(keyword.toLowerCase())
     )
   );
@@ -285,11 +376,11 @@ function validateTestableCriteria(criteria: string[]): DorCheckItem {
   return {
     id: 'testableCriteria',
     name: 'Criterios testeables',
-    description: 'Al menos un criterio de aceptación debe contener verbos de acción verificables',
+    description: 'Al menos un criterio de aceptación debe contener verbos de acción accionables',
     passed,
     weight: 5,
     suggestion: passed ? undefined :
-      'Usa verbos de acción verificables en los criterios: debe, verificar, comprobar, mostrar, retornar, etc.',
+      'Usa verbos de acción en los criterios: debe, verificar, comprobar, mostrar, generar, retornar, enviar, etc.',
   };
 }
 
