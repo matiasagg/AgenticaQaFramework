@@ -95,7 +95,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
         projectId: story.projectId,
       },
     });
-    await prisma.userStory.update({ where: { id: story.id }, data: { status: 'IN_PROGRESS' } });
+    await prisma.userStory.update({ where: { id: story.id }, data: { status: 'IN_DEVELOPMENT' } });
     return res.json({ intent: 'generate_tests', result: 'Suite generada', testSuite: saved, totalTestCases: suite.testCases.length });
   }
 

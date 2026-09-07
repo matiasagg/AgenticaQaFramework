@@ -37,6 +37,8 @@ describe('HDU workflow service', () => {
 
   it('should normalize external statuses to the internal HDU workflow', () => {
     expect(normalizeExternalStatus('open')).toBe('NEW');
+    expect(normalizeExternalStatus('in_review')).toBe('DOR_IN_PROGRESS');
+    expect(normalizeExternalStatus('ready')).toBe('DOR_DONE');
     expect(normalizeExternalStatus('in_progress')).toBe('IN_DEVELOPMENT');
     expect(normalizeExternalStatus('done')).toBe('DONE');
     expect(normalizeExternalStatus('closed')).toBe('ARCHIVED');
