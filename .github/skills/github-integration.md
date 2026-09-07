@@ -56,6 +56,16 @@ gh api repos/matiasagg/AgenticaQaFramework/issues --method GET
 gh api repos/matiasagg/AgenticaQaFramework/issues --method POST -f title="Bug" -f body="Descripcion"
 ```
 
+### Sincronización de HDUs
+
+La vista previa de issues (`GET /api/github-sync/:projectId/issues`) compara
+`updated_at` de GitHub con la última sincronización de cada HDU y devuelve
+`needsSync: true` cuando detecta cambios. La interfaz consulta periódicamente
+este endpoint y muestra una notificación para que el usuario seleccione las HDUs
+actualizadas. Los cambios seleccionados se aplican con
+`POST /api/github-sync/:projectId/sync` y el cuerpo
+`{ "issueNumbers": [123] }`.
+
 ## Workflow: Crear Issue desde Bug Report
 
 1. Recibir descripción del bug

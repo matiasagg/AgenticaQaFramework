@@ -17,6 +17,7 @@ import {
   fetchPullRequests,
   mapIssueToUserStory,
   buildIssueDescription,
+  hasGitHubIssueChanged,
 } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
 
@@ -45,12 +46,12 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const issues = await fetchIssues(project.repository, state, token);
 
-  const existingStories = await prisma.userStory.findMany({
+  const existingStories: Array<{ externalId: string | null; title: string; syncedAt: Date | null }> = await prisma.userStory.findMany({
     where: {
       projectId: project.id,
       externalSystem: 'GITHUB',
     },
-    select: { externalId: true, title: true },
+    select: { externalId: true, title: true, syncedAt: true },
   });
   const importedExternalIds = new Set(
     existingStories
@@ -64,10 +65,75 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
     url: issue.html_url,
     labels: issue.labels.map((l) => l.name),
     alreadyImported: importedExternalIds.has(String(issue.number)),
+    needsSync: (() => {
+      const story = existingStories.find((item) => item.externalId === String(issue.number));
+      return story ? hasGitHubIssueChanged(issue, story.syncedAt) : false;
+    })(),
     mapped: mapIssueToUserStory(issue),
   }));
 
   res.json({ issues: preview, repository: project.repository });
+}));
+
+/**
+ * POST /api/github-sync/:projectId/sync
+ * Actualiza HDUs importadas cuando su issue de GitHub cambió.
+ *
+ * Body: { issueNumbers: number[] }
+ */
+router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { issueNumbers } = req.body;
+  if (!Array.isArray(issueNumbers) || issueNumbers.length === 0) {
+    throw new ApiError('Falta issueNumbers (array de números de issue)', 400);
+  }
+
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.projectId, userId: req.user!.id },
+  });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+  if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
+
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const issues = await fetchIssues(project.repository, 'all', token);
+  const stories: Array<{ id: string; externalId: string | null; syncedAt: Date | null }> = await prisma.userStory.findMany({
+    where: {
+      projectId: project.id,
+      externalSystem: 'GITHUB',
+      externalId: { in: issueNumbers.map(String) },
+    },
+  });
+
+  const synced: Array<{ id: string; issueNumber: number }> = [];
+  const skipped: number[] = [];
+  for (const issue of issues.filter((item) => issueNumbers.includes(item.number))) {
+    const story = stories.find((item) => item.externalId === String(issue.number));
+    if (!story || !hasGitHubIssueChanged(issue, story.syncedAt)) {
+      skipped.push(issue.number);
+      continue;
+    }
+
+    const mapped = mapIssueToUserStory(issue);
+    await prisma.userStory.update({
+      where: { id: story.id },
+      data: {
+        title: mapped.title,
+        description: buildIssueDescription(mapped.description, mapped.githubUrl),
+        acceptanceCriteria: mapped.acceptanceCriteria,
+        priority: mapped.priority as any,
+        syncStatus: 'SYNCED',
+        syncMetadata: {
+          issueNumber: issue.number,
+          source: 'github',
+          sourceUpdatedAt: issue.updated_at,
+          syncedAt: new Date().toISOString(),
+        },
+        syncedAt: new Date(),
+      },
+    });
+    synced.push({ id: story.id, issueNumber: issue.number });
+  }
+
+  res.json({ synced, skipped, summary: { total: issueNumbers.length, synced: synced.length, skipped: skipped.length } });
 }));
 
 /**

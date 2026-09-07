@@ -135,6 +135,14 @@ export function mapIssueToUserStory(issue: GitHubIssue): {
 }
 
 /**
+ * Indica si un issue cambió en GitHub después de la última sincronización.
+ */
+export function hasGitHubIssueChanged(issue: GitHubIssue, syncedAt?: Date | string | null): boolean {
+  if (!syncedAt) return true;
+  return new Date(issue.updated_at).getTime() > new Date(syncedAt).getTime();
+}
+
+/**
  * Extrae criterios de aceptación del cuerpo de un issue.
  * Busca secciones comunes: "Criterios de aceptación", "Acceptance Criteria",
  * o listas con checkboxes.
@@ -263,5 +271,6 @@ export default {
   fetchBranches,
   fetchPullRequests,
   mapIssueToUserStory,
+  hasGitHubIssueChanged,
   parseRepoUrl,
 };
