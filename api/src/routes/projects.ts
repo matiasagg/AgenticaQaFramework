@@ -47,7 +47,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       userId: req.user!.id,
       testPlans: {
         create: [
-          { name: 'Repo', description: 'Pruebas derivadas del repositorio', planType: 'REPO', status: 'ACTIVE' },
+          { name: 'Repo', description: 'Pruebas derivadas del repositorio', planType: 'REPO', status: 'ACTIVE', tags: [] },
           { name: 'SDLC', description: 'Pruebas del ciclo de vida de desarrollo', planType: 'SDLC', status: 'ACTIVE', tags: ['regression'] },
           { name: 'Continuous Testing', description: 'Combinación configurable de Repo y SDLC', planType: 'CONTINUOUS', status: 'ACTIVE', tags: ['smoke', 'regression'] },
         ],
