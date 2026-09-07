@@ -13,8 +13,10 @@ import coverageRoutes from './routes/coverage';
 import planRoutes from './routes/plans';
 import userStoryRoutes from './routes/userStories';
 import epicRoutes from './routes/epics';
+import featureRoutes from './routes/features';
 import chatRoutes from './routes/chat';
 import testPlanRoutes from './routes/testPlans';
+import testSuiteRoutes from './routes/testSuites';
 import githubSyncRoutes from './routes/githubSync';
 
 /**
@@ -68,8 +70,10 @@ async function startServer() {
     app.use('/api/plans', planRoutes);
     app.use('/api/user-stories', userStoryRoutes);
     app.use('/api/epics', epicRoutes);
+    app.use('/api/features', featureRoutes);
     app.use('/api/chat', chatRoutes);
     app.use('/api/test-plans', testPlanRoutes);
+    app.use('/api/test-suites', testSuiteRoutes);
     app.use('/api/github-sync', githubSyncRoutes);
     
     // Error handling middleware
