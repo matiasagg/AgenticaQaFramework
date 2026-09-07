@@ -86,7 +86,8 @@ vi.mock('../../services/githubIntegration', () => ({
   fetchBranches: (...args: any[]) => mocks.mockFetchBranches(...args),
   fetchPullRequests: (...args: any[]) => mocks.mockFetchPullRequests(...args),
   mapIssueToUserStory: (...args: any[]) => mocks.mockMapIssueToUserStory(...args),
-  buildIssueDescription: (...args: any[]) => mocks.mockBuildIssueDescription(...args),
+  buildIssueDescription: (description: string, githubUrl: string) =>
+    mocks.mockBuildIssueDescription(description, githubUrl),
   parseRepoUrl: vi.fn(),
 }))
 

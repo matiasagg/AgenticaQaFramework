@@ -28,6 +28,7 @@ export default function EpicsPage() {
   const [epics, setEpics] = useState<EpicItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingEpic, setEditingEpic] = useState<EpicItem | null>(null)
   const [projects, setProjects] = useState<any[]>([])
   const [formData, setFormData] = useState({
     name: '',
@@ -73,16 +74,21 @@ export default function EpicsPage() {
       return
     }
     try {
-      await epicsApi.create({
-        name: formData.name,
-        description: formData.description,
-        projectId: formData.projectId,
-      })
+      if (editingEpic) {
+        await epicsApi.update(editingEpic.id, { name: formData.name, description: formData.description })
+      } else {
+        await epicsApi.create({
+          name: formData.name,
+          description: formData.description,
+          projectId: formData.projectId,
+        })
+      }
       setShowForm(false)
+      setEditingEpic(null)
       setFormData({ name: '', description: '', projectId: projects[0]?.id || '' })
       fetchEpics()
     } catch (error: any) {
-      alert(error?.error?.message || 'Error al crear la épica')
+      alert(error?.error?.message || 'Error al crear/actualizar la épica')
     }
   }
 
@@ -94,6 +100,12 @@ export default function EpicsPage() {
     } catch (error: any) {
       alert(error?.error?.message || 'Error al eliminar la épica')
     }
+  }
+
+  const handleEdit = (epic: EpicItem) => {
+    setEditingEpic(epic)
+    setFormData({ name: epic.name, description: epic.description || '', projectId: epic.projectId })
+    setShowForm(true)
   }
 
   const getStatusColor = (status: string) => {
@@ -287,12 +299,15 @@ export default function EpicsPage() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => handleDelete(epic.id)}
-                  className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
-                >
-                  Eliminar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button className="btn-ghost" onClick={() => handleEdit(epic)}>Editar</button>
+                  <button
+                    onClick={() => handleDelete(epic.id)}
+                    className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                  >
+                    Eliminar
+                  </button>
+                </div>
               </div>
             </div>
           ))

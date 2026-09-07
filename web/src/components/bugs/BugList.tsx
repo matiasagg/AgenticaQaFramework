@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Bug, Severity, BugStatus } from '../../types'
-import { bugsApi } from '../../services/api'
+import { bugsApi, projectsApi } from '../../services/api'
 import BugDetail from './BugDetail'
 
 interface Filters {
@@ -14,6 +14,10 @@ export default function BugList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedBug, setSelectedBug] = useState<Bug | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [createData, setCreateData] = useState<any>({ title: '', description: '', severity: 'MEDIUM', stepsToReproduce: [], expectedResult: '', actualResult: '', projectId: '' })
+  const [projects, setProjects] = useState<any[]>([])
+  const [editingBug, setEditingBug] = useState<Bug | null>(null)
   const [filters, setFilters] = useState<Filters>({
     severity: '',
     status: '',
@@ -22,7 +26,20 @@ export default function BugList() {
 
   useEffect(() => {
     fetchBugs()
+    fetchProjects()
   }, [filters])
+
+  const fetchProjects = async () => {
+    try {
+      const res = await projectsApi.getAll()
+      setProjects(res.projects || [])
+      if (!createData.projectId && res.projects?.length > 0) {
+        setCreateData((p: any) => ({ ...p, projectId: res.projects[0].id }))
+      }
+    } catch (err) {
+      console.error('Error loading projects', err)
+    }
+  }
 
   const fetchBugs = async () => {
     try {
@@ -79,8 +96,35 @@ export default function BugList() {
     })
   }
 
+  const handleDelete = async (bug: Bug) => {
+    if (!confirm('¿Eliminar bug?')) return
+    try {
+      await bugsApi.delete(bug.id)
+      if (selectedBug?.id === bug.id) setSelectedBug(null)
+      await fetchBugs()
+    } catch (err) {
+      console.error('Error deleting bug', err)
+      alert('Error al eliminar bug')
+    }
+  }
+
+  const openEdit = (bug: Bug) => {
+    setEditingBug(bug)
+    setCreateData({
+      title: bug.title,
+      description: bug.description,
+      severity: bug.severity,
+      stepsToReproduce: bug.stepsToReproduce || [],
+      expectedResult: bug.expectedResult || '',
+      actualResult: bug.actualResult || '',
+      environment: bug.environment || '',
+      projectId: bug.projectId,
+    })
+    setShowCreate(true)
+  }
+
   if (selectedBug) {
-    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} />
+    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} onEdit={openEdit} onDelete={handleDelete} />
   }
 
   return (
@@ -90,7 +134,7 @@ export default function BugList() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
           Bug Reports
         </h1>
-        <button className="btn-primary">
+        <button className="btn-primary" onClick={() => setShowCreate(true)}>
           + Nuevo Bug
         </button>
       </div>
@@ -254,6 +298,61 @@ export default function BugList() {
           </div>
         )}
       </div>
+
+      {/* Create Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Nuevo Bug</h2>
+              <button onClick={() => setShowCreate(false)} className="p-2">✕</button>
+            </div>
+            <div className="p-6 space-y-3">
+              <select className="input-field" value={createData.projectId || ''} onChange={(e) => setCreateData({ ...createData, projectId: e.target.value })}>
+                <option value="">Seleccionar proyecto...</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <input className="input-field" placeholder="Título" value={createData.title} onChange={(e) => setCreateData({ ...createData, title: e.target.value })} />
+              <textarea className="input-field" placeholder="Descripción" value={createData.description} onChange={(e) => setCreateData({ ...createData, description: e.target.value })} />
+              <select className="input-field" value={createData.severity} onChange={(e) => setCreateData({ ...createData, severity: e.target.value })}>
+                <option value="CRITICAL">Critica</option>
+                <option value="HIGH">Alta</option>
+                <option value="MEDIUM">Media</option>
+                <option value="LOW">Baja</option>
+              </select>
+              <div className="flex justify-end gap-2">
+                <button className="btn-ghost" onClick={() => { setShowCreate(false); setEditingBug(null); }}>Cancelar</button>
+                <button className="btn-primary" onClick={async () => {
+                  try {
+                    if (editingBug) {
+                      await bugsApi.update(editingBug.id, {
+                        title: createData.title,
+                        description: createData.description,
+                        severity: createData.severity,
+                        expectedResult: createData.expectedResult,
+                        actualResult: createData.actualResult,
+                        environment: createData.environment,
+                      })
+                    } else {
+                      await bugsApi.create({
+                        ...createData,
+                        projectId: createData.projectId || projects[0]?.id || '',
+                        stepsToReproduce: createData.stepsToReproduce || [],
+                      })
+                    }
+                    setShowCreate(false)
+                    setEditingBug(null)
+                    fetchBugs()
+                  } catch (err) {
+                    console.error(err)
+                    alert('Error guardando bug')
+                  }
+                }}>{editingBug ? 'Guardar' : 'Crear'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       {!loading && !error && bugs.length > 0 && (

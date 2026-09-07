@@ -3,9 +3,11 @@ import { Bug } from '../../types'
 interface BugDetailProps {
   bug: Bug
   onBack: () => void
+  onEdit?: (bug: Bug) => void
+  onDelete?: (bug: Bug) => void
 }
 
-export default function BugDetail({ bug, onBack }: BugDetailProps) {
+export default function BugDetail({ bug, onBack, onEdit, onDelete }: BugDetailProps) {
   const getSeverityColor = (severity: string): string => {
     const colors: Record<string, string> = {
       CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
@@ -212,14 +214,14 @@ export default function BugDetail({ bug, onBack }: BugDetailProps) {
               Acciones
             </h2>
             <div className="space-y-2">
-              <button className="btn-primary w-full">
+              <button className="btn-primary w-full" onClick={() => onEdit?.(bug)}>
                 Editar Bug
               </button>
-              <button className="btn-secondary w-full">
-                Cambiar Estado
+              <button className="btn-secondary w-full" onClick={() => onBack()}>
+                Volver a lista
               </button>
-              <button className="btn-secondary w-full">
-                Asignar
+              <button className="btn-secondary w-full" onClick={() => onDelete?.(bug)}>
+                Eliminar
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PrismaClient, PrismaClientKnownRequestError } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 
@@ -68,7 +68,7 @@ router.put('/me', asyncHandler(async (req: AuthenticatedRequest, res: Response) 
 
     res.json({ user });
   } catch (error) {
-    if (error instanceof PrismaClientKnownRequestError && error.code === 'P2025') {
+    if ((error as any)?.code === 'P2025') {
       throw new ApiError('Session invalid or expired', 401);
     }
 
