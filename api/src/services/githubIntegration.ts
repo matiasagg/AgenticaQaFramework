@@ -42,13 +42,71 @@ export function parseRepoUrl(repoUrl: string): { owner: string; repo: string } |
  * @returns Lista de issues
  */
 function getGitHubToken(tokenOverride?: string | null): string {
-  const token = (tokenOverride ?? process.env.GITHUB_TOKEN ?? config.github.token ?? '').trim();
+  const overrideToken = (tokenOverride ?? '').trim();
+  const fallbackToken = (process.env.GITHUB_TOKEN ?? config.github.token ?? '').trim();
 
-  if (!token || /^your[-_ ]?github/i.test(token) || /placeholder|example|sample/i.test(token)) {
-    throw new Error('GITHUB_TOKEN no configurado. Configura un token real de GitHub en el proyecto o en api/.env');
+  const isValidToken = (value: string): boolean => {
+    if (!value) return false;
+    if (/^your[-_ ]?github/i.test(value) || /placeholder|example|sample/i.test(value)) return false;
+    if (/\s/.test(value)) return false;
+    return /^[\x21-\x7E]+$/.test(value);
+  };
+
+  if (isValidToken(overrideToken)) {
+    return overrideToken;
   }
 
-  return token;
+  if (overrideToken && !isValidToken(overrideToken)) {
+    console.warn('GitHub token del proyecto inválido o corrupto. Se intentará usar GITHUB_TOKEN global.');
+  }
+
+  if (isValidToken(fallbackToken)) {
+    return fallbackToken;
+  }
+
+  throw new Error('GITHUB_TOKEN no configurado o inválido. Configura un token real en el proyecto (PAT) o en api/.env');
+}
+
+async function fetchGitHubJson(url: string, token: string) {
+  const requestOptions = {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'QA-SaaS-Platform',
+    },
+  };
+
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await fetch(url, requestOptions);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`GitHub API error: ${response.status} - ${errorBody}`);
+      }
+
+      return response.json();
+    } catch (error: any) {
+      lastError = error;
+      const message = String(error?.message || '').toLowerCase();
+      const isTransientNetworkError =
+        message.includes('fetch failed') ||
+        message.includes('econnreset') ||
+        message.includes('etimedout') ||
+        message.includes('enotfound') ||
+        message.includes('socket');
+
+      if (!isTransientNetworkError || attempt === 2) {
+        const cause = error?.cause?.message || error?.cause?.code || 'sin detalle adicional';
+        throw new Error(`No se pudo conectar con GitHub (${cause}). Verifica red/proxy/firewall y el token.`);
+      }
+    }
+  }
+
+  const cause = lastError?.cause?.message || lastError?.message || 'error de red desconocido';
+  throw new Error(`No se pudo conectar con GitHub (${cause}).`);
 }
 
 export async function fetchIssues(
@@ -63,21 +121,8 @@ export async function fetchIssues(
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/issues?state=${state}&per_page=100`;
 
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'User-Agent': 'QA-SaaS-Platform',
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`GitHub API error: ${response.status} - ${error}`);
-  }
-
   // Filtrar PRs (la API de issues incluye los PRs también)
-  const issues = (await response.json()) as GitHubIssue[];
+  const issues = (await fetchGitHubJson(url, token)) as GitHubIssue[];
   return issues.filter((issue) => !issue.html_url.includes('/pull/'));
 }
 
@@ -201,19 +246,7 @@ export async function fetchBranches(
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/branches?per_page=100`;
 
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'User-Agent': 'QA-SaaS-Platform',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status}`);
-  }
-
-  const branches = (await response.json()) as Array<{ name: string }>;
+  const branches = (await fetchGitHubJson(url, token)) as Array<{ name: string }>;
   return branches.map((b) => b.name);
 }
 
@@ -236,20 +269,7 @@ export async function fetchPullRequests(
 
   const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/pulls?state=${state}&per_page=100`;
 
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'User-Agent': 'QA-SaaS-Platform',
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`GitHub API error: ${response.status} - ${error}`);
-  }
-
-  const prs = (await response.json()) as Array<{
+  const prs = (await fetchGitHubJson(url, token)) as Array<{
     number: number;
     title: string;
     head?: { ref?: string };
