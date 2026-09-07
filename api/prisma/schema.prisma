@@ -144,6 +144,8 @@ model TestPlan {
   name        String
   description String
   status      TestPlanStatus @default(DRAFT)
+  planType    TestPlanType   @default(CUSTOM)
+  tags        String[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -152,6 +154,9 @@ model TestPlan {
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   testSuites  TestSuite[]
   userStories UserStory[]
+  sourcePlanId String?
+  sourcePlan   TestPlan? @relation("TestPlanDerivation", fields: [sourcePlanId], references: [id], onDelete: SetNull)
+  derivedPlans TestPlan[] @relation("TestPlanDerivation")
 
   @@index([projectId])
 }
@@ -161,6 +166,13 @@ enum TestPlanStatus {
   ACTIVE
   COMPLETED
   ARCHIVED
+}
+
+enum TestPlanType {
+  REPO
+  CONTINUOUS
+  SDLC
+  CUSTOM
 }
 
 // Project model for organizing QA work
@@ -237,6 +249,7 @@ model TestCase {
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   agentId         String?
   agent           Agent?   @relation(fields: [agentId], references: [id])
+  suiteLinks     TestSuiteTestCase[]
 }
 
 // Evidence model for storing screenshots, videos, logs, etc.
@@ -320,13 +333,6 @@ model UserStory {
   // Workflow / lifecycle fields
   workflowState   UserStoryStatus @default(NEW)
   lastStatusChangeAt DateTime?
-  syncStatus      SyncStatus @default(UNSYNCED)
-  externalSystem  String?
-  externalId      String?
-  externalUrl     String?
-  syncMetadata    Json?
-  syncedAt        DateTime?
-
   // GitHub integration fields
   branchName      String?
   prNumber        String?
@@ -372,6 +378,8 @@ model TestSuite {
   testData        Json?
   profiling       Json?
   status          TestSuiteStatus @default(DRAFT)
+  suiteType       TestSuiteType   @default(STATIC)
+  tags            String[]
 
   // Relations
   userStoryId     String?  @unique
@@ -380,6 +388,10 @@ model TestSuite {
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   testPlanId      String?
   testPlan        TestPlan? @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
+  parentSuiteId   String?
+  parentSuite     TestSuite? @relation("SuiteHierarchy", fields: [parentSuiteId], references: [id], onDelete: Cascade)
+  childSuites     TestSuite[] @relation("SuiteHierarchy")
+  testLinks       TestSuiteTestCase[]
   generatedById   String?
   generatedBy     Agent?   @relation("GeneratedBy", fields: [generatedById], references: [id])
 
@@ -388,6 +400,17 @@ model TestSuite {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// Explicit links allow a reusable test case to belong to multiple suites.
+model TestSuiteTestCase {
+  testSuiteId String
+  testCaseId  String
+  testSuite   TestSuite @relation(fields: [testSuiteId], references: [id], onDelete: Cascade)
+  testCase    TestCase  @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@id([testSuiteId, testCaseId])
+  @@index([testCaseId])
 }
 
 // Enums
@@ -479,17 +502,16 @@ enum SyncStatus {
   MANUAL
 }
 
-enum SyncStatus {
-  UNSYNCED
-  SYNCED
-  OUT_OF_SYNC
-  MANUAL
-}
-
 enum TestSuiteStatus {
   DRAFT
   GENERATING
   READY
   APPROVED
   ARCHIVED
+}
+
+enum TestSuiteType {
+  QUERY
+  STATIC
+  REQUIREMENT
 }

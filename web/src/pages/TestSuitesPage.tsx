@@ -59,7 +59,7 @@ export default function TestSuitesPage() {
         title: form.title,
         description: form.description,
         projectId: form.projectId,
-        testPlanId: form.testPlanId || undefined,
+        testPlanId: form.testPlanId,
       })
       // refetch via test-plans to keep flatten behavior
       const response = await api.get('/test-plans')
@@ -95,7 +95,7 @@ export default function TestSuitesPage() {
         title: form.title,
         description: form.description,
         environment: editingSuite.environment,
-        testPlanId: form.testPlanId || null,
+        testPlanId: form.testPlanId,
       })
       // refresh suites
       const response = await api.get('/test-plans')
@@ -167,7 +167,7 @@ export default function TestSuitesPage() {
               ))}
             </select>
             <select className="input-field" value={form.testPlanId} onChange={(e) => setForm({ ...form, testPlanId: e.target.value })}>
-              <option value="">(Opcional) Selecciona Test Plan</option>
+              <option value="">Selecciona Test Plan</option>
               {plans.map((pl) => (
                 <option key={pl.id} value={pl.id}>{pl.name}</option>
               ))}

@@ -187,7 +187,7 @@ export const agentsApi = {
 
 // Tests services
 export const testsApi = {
-  getAll: async (params?: { type?: string; priority?: string; status?: string; projectId?: string }) => {
+  getAll: async (params?: { type?: string; priority?: string; status?: string; projectId?: string; suiteId?: string }) => {
     const response = await api.get('/tests', { params })
     return response.data
   },
@@ -206,6 +206,8 @@ export const testsApi = {
     priority: string
     type: string
     projectId: string
+    suiteId?: string
+    suiteIds?: string[]
   }) => {
     const response = await api.post('/tests', data)
     return response.data
@@ -377,11 +379,26 @@ export const testPlansApi = {
     const response = await api.get(`/test-plans/${id}`)
     return response.data
   },
+
+  create: async (data: { name: string; description?: string; projectId: string; planType?: string; tags?: string[]; sourcePlanId?: string }) => {
+    const response = await api.post('/test-plans', data)
+    return response.data
+  },
+
+  update: async (id: string, data: Partial<{ name: string; description: string; status: string; tags: string[]; sourcePlanId: string | null }>) => {
+    const response = await api.put(`/test-plans/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/test-plans/${id}`)
+    return response.data
+  },
 }
 
 // TestSuites services
 export const testSuitesApi = {
-  getAll: async (params?: { projectId?: string; testPlanId?: string; userStoryId?: string }) => {
+  getAll: async (params?: { projectId?: string; testPlanId?: string; userStoryId?: string; parentSuiteId?: string; suiteType?: string }) => {
     const response = await api.get('/test-suites', { params })
     return response.data
   },
@@ -391,7 +408,7 @@ export const testSuitesApi = {
     return response.data
   },
 
-  create: async (data: { title: string; description?: string; projectId: string; testPlanId?: string; userStoryId?: string; environment?: string }) => {
+  create: async (data: { title: string; description?: string; projectId: string; testPlanId?: string; userStoryId?: string; environment?: string; suiteType?: string; tags?: string[]; parentSuiteId?: string }) => {
     const response = await api.post('/test-suites', data)
     return response.data
   },
@@ -403,6 +420,11 @@ export const testSuitesApi = {
 
   delete: async (id: string) => {
     const response = await api.delete(`/test-suites/${id}`)
+    return response.data
+  },
+
+  addTest: async (suiteId: string, testCaseId: string) => {
+    const response = await api.post(`/test-suites/${suiteId}/tests`, { testCaseId })
     return response.data
   },
 }
