@@ -259,11 +259,11 @@ export default function UserStoriesPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'DRAFT': return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-      case 'IN_REVIEW': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-      case 'READY': return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-      case 'IN_PROGRESS': return 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-      case 'COMPLETED': return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+      case 'NEW': return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+      case 'DOR_IN_PROGRESS': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+      case 'DOR_DONE': return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+      case 'IN_DEVELOPMENT': return 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+      case 'DONE': return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
       default: return 'bg-gray-100 text-gray-700'
     }
   }

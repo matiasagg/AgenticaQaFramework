@@ -101,7 +101,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       featureId,
       epicId: feature.epicId,
       userId: req.user!.id,
-      status: 'DRAFT',
+      status: 'NEW',
       syncStatus: 'UNSYNCED',
     },
     include: {
@@ -298,7 +298,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     : validationResult.score;
 
   const workflowState = advanceStoryStatus({
-    currentStatus: normalizeExternalStatus(String(userStory.status || 'DRAFT')),
+    currentStatus: normalizeExternalStatus(String(userStory.status || 'NEW')),
     dorScore: finalScore,
     isReady: finalScore >= 70 && validationResult.isReady,
   });
@@ -336,7 +336,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         } : null,
       })),
       qualityScore: finalScore,
-      status: isReady ? 'READY' : 'IN_REVIEW',
+      status: isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
     },
     include: {
       project: true,
@@ -399,7 +399,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
           dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
           isReady: validationResult.isReady,
           qualityScore: validationResult.score,
-          status: validationResult.isReady ? 'READY' : 'IN_REVIEW',
+          status: validationResult.isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
         },
       });
 
@@ -449,7 +449,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
   await prisma.userStory.update({
     where: { id: req.params.id },
     data: {
-      status: 'IN_PROGRESS',
+      status: 'IN_DEVELOPMENT',
     },
   });
 

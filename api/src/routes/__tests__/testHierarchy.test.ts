@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   userId: 'user-1',
   project: { findFirst: vi.fn() },
   testPlan: { findFirst: vi.fn() },
-  testSuite: { findFirst: vi.fn(), create: vi.fn() },
+  testSuite: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
   testCase: { findMany: vi.fn(), create: vi.fn() },
 }))
 
