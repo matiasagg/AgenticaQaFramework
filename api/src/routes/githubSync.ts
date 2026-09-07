@@ -45,19 +45,25 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const issues = await fetchIssues(project.repository, state, token);
 
-  // Detectar cuáles issues ya fueron importados (por número guardado en title prefix)
   const existingStories = await prisma.userStory.findMany({
-    where: { projectId: project.id },
-    select: { title: true },
+    where: {
+      projectId: project.id,
+      externalSystem: 'GITHUB',
+    },
+    select: { externalId: true, title: true },
   });
-  const existingTitles = new Set(existingStories.map((s) => s.title));
+  const importedExternalIds = new Set(
+    existingStories
+      .map((story) => story.externalId)
+      .filter((value): value is string => Boolean(value))
+  );
 
   const preview = issues.map((issue) => ({
     number: issue.number,
     title: issue.title,
     url: issue.html_url,
     labels: issue.labels.map((l) => l.name),
-    alreadyImported: existingTitles.has(issue.title),
+    alreadyImported: importedExternalIds.has(String(issue.number)),
     mapped: mapIssueToUserStory(issue),
   }));
 
@@ -105,12 +111,27 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
   }
 
   const imported: Array<{ id: string; title: string; issueNumber: number }> = [];
+  const skipped: Array<{ issueNumber: number; reason: string }> = [];
   const errors: Array<{ issueNumber: number; error: string }> = [];
 
   for (const issue of toImport) {
     try {
+      const externalId = String(issue.number);
+      const existingStory = await prisma.userStory.findFirst({
+        where: {
+          projectId: project.id,
+          externalSystem: 'GITHUB',
+          externalId,
+        },
+      });
+
+      if (existingStory) {
+        skipped.push({ issueNumber: issue.number, reason: 'Ya existe una HDU sincronizada con este issue de GitHub' });
+        continue;
+      }
+
       const mapped = mapIssueToUserStory(issue);
-      const descriptionWithRef = buildIssueDescription(mapped.description, mapped.githubUrl);
+      const descriptionWithRef = `${mapped.description}\n\n---\n🔗 Issue: ${mapped.githubUrl}`;
 
       const userStory = await prisma.userStory.create({
         data: {
@@ -122,10 +143,9 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
           userId: req.user!.id,
           epicId: epicId || null,
           featureId: featureId || null,
-          status: 'NEW',
-          workflowState: 'NEW',
+          status: 'DRAFT',
           externalSystem: 'GITHUB',
-          externalId: String(issue.id),
+          externalId,
           externalUrl: mapped.githubUrl,
           syncStatus: 'SYNCED',
           syncMetadata: {
@@ -133,6 +153,7 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
             source: 'github',
             importedAt: new Date().toISOString(),
           },
+          syncedAt: new Date(),
         },
       });
       imported.push({ id: userStory.id, title: userStory.title, issueNumber: issue.number });
@@ -141,14 +162,21 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
     }
   }
 
+  const summary: Record<string, number> = {
+    total: toImport.length,
+    success: imported.length,
+    failed: errors.length,
+  };
+
+  if (skipped.length > 0) {
+    summary.skipped = skipped.length;
+  }
+
   res.status(201).json({
     imported,
+    skipped,
     errors,
-    summary: {
-      total: toImport.length,
-      success: imported.length,
-      failed: errors.length,
-    },
+    summary,
   });
 }));
 
