@@ -45,6 +45,13 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       website,
       githubToken: githubToken ? encryptApiKey(String(githubToken).trim()) : null,
       userId: req.user!.id,
+      testPlans: {
+        create: [
+          { name: 'Repo', description: 'Pruebas derivadas del repositorio', planType: 'REPO', status: 'ACTIVE' },
+          { name: 'SDLC', description: 'Pruebas del ciclo de vida de desarrollo', planType: 'SDLC', status: 'ACTIVE', tags: ['regression'] },
+          { name: 'Continuous Testing', description: 'Combinación configurable de Repo y SDLC', planType: 'CONTINUOUS', status: 'ACTIVE', tags: ['smoke', 'regression'] },
+        ],
+      },
     },
   });
   res.status(201).json({ project: sanitizeProject(project) });

@@ -75,6 +75,7 @@ export interface TestCase {
   automationStatus?: 'MANUAL' | 'AUTOMATED' | 'IN_PROGRESS'
   projectId: string
   agentId?: string
+  suiteLinks?: { testSuiteId: string; testSuite?: TestSuite }[]
   createdAt: string
   updatedAt: string
 }
@@ -97,6 +98,10 @@ export interface TestSuite {
   status: string
   userStoryId?: string
   testPlanId?: string
+  suiteType?: 'QUERY' | 'STATIC' | 'REQUIREMENT'
+  tags?: string[]
+  parentSuiteId?: string
+  testLinks?: { testCaseId: string; testCase?: TestCase }[]
   projectId: string
   createdAt: string
   updatedAt: string
@@ -107,6 +112,9 @@ export interface TestPlan {
   name: string
   description: string
   status: string
+  planType?: 'REPO' | 'CONTINUOUS' | 'SDLC' | 'CUSTOM'
+  tags?: string[]
+  sourcePlanId?: string
   projectId: string
   testSuites?: TestSuite[]
   userStories?: any[]

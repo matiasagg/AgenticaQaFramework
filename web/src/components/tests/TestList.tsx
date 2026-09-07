@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { TestCase, TestType, Priority, TestStatus } from '../../types';
-import { testsApi, projectsApi } from '../../services/api';
+import { testsApi, projectsApi, testSuitesApi } from '../../services/api';
 
 interface TestListProps {
   onSelectTest?: (test: TestCase) => void;
@@ -39,6 +39,7 @@ export default function TestList({ onSelectTest }: TestListProps) {
   const [filterPriority, setFilterPriority] = useState<Priority | ''>('');
   const [filterStatus, setFilterStatus] = useState<TestStatus | ''>('');
   const [projects, setProjects] = useState<any[]>([]);
+  const [suites, setSuites] = useState<any[]>([]);
 
   useEffect(() => {
     fetchTests();
@@ -76,6 +77,7 @@ export default function TestList({ onSelectTest }: TestListProps) {
         priority: newData.priority,
         type: newData.type,
         projectId: newData.projectId || projects[0]?.id || '',
+        suiteId: newData.suiteId,
       })
       setShowCreate(false)
       setNewData({ title: '', description: '', type: 'FUNCTIONAL', priority: 'MEDIUM' })
@@ -92,6 +94,10 @@ export default function TestList({ onSelectTest }: TestListProps) {
       const res = await projectsApi.getAll()
       setProjects(res.projects || [])
       if (!newData.projectId && res.projects?.length > 0) setNewData((d: any) => ({ ...d, projectId: res.projects[0].id }))
+      if (res.projects?.length > 0) {
+        const suiteResponse = await testSuitesApi.getAll({ projectId: newData.projectId || res.projects[0].id })
+        setSuites(suiteResponse.suites || [])
+      }
     } catch (err) {
       console.error('Error loading projects', err)
     }
@@ -167,6 +173,10 @@ export default function TestList({ onSelectTest }: TestListProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
             <select className="input-field" value={newData.projectId || ''} onChange={(e) => setNewData({ ...newData, projectId: e.target.value })}>
               {projects.length === 0 ? <option value="">Sin proyecto</option> : projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select className="input-field" value={newData.suiteId || ''} onChange={(e) => setNewData({ ...newData, suiteId: e.target.value })} required>
+              <option value="">Selecciona suite</option>
+              {suites.map(suite => <option key={suite.id} value={suite.id}>{suite.title}</option>)}
             </select>
             <input placeholder="Título" className="input-field" value={newData.title} onChange={(e) => setNewData({ ...newData, title: e.target.value })} />
             <select className="input-field" value={newData.type} onChange={(e) => setNewData({ ...newData, type: e.target.value as any })}>
