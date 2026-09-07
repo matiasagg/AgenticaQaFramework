@@ -1,0 +1,35 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="900" fill="#020E1F"/>
+
+  <defs>
+    <linearGradient id="ringGrad" x1="120" y1="60" x2="450" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#19D8FF"/>
+      <stop offset="0.52" stop-color="#1E9EF4"/>
+      <stop offset="1" stop-color="#FF4A5D"/>
+    </linearGradient>
+    <linearGradient id="needleGrad" x1="300" y1="190" x2="620" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5FE3FF"/>
+      <stop offset="0.5" stop-color="#2FA9F5"/>
+      <stop offset="1" stop-color="#FF6C5C"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(110,160)">
+    <circle cx="250" cy="220" r="190" stroke="url(#ringGrad)" stroke-width="32" fill="none"/>
+    <path d="M 354 90 A 190 190 0 0 1 430 280" stroke="url(#ringGrad)" stroke-width="32" stroke-linecap="round" fill="none" opacity="0.9"/>
+    <path d="M 151 404 A 190 190 0 0 1 285 84" stroke="url(#ringGrad)" stroke-width="32" stroke-linecap="round" fill="none" opacity="0.78"/>
+
+    <circle cx="250" cy="220" r="126" stroke="#081E35" stroke-width="28" fill="none"/>
+
+    <path d="M 248 155 L 248 314" stroke="url(#needleGrad)" stroke-width="28" stroke-linecap="round"/>
+    <path d="M 220 238 L 248 155 L 320 155" stroke="url(#needleGrad)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M 313 343 L 248 257 L 322 214" stroke="url(#needleGrad)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+    <circle cx="250" cy="220" r="15" fill="#081E35"/>
+  </g>
+
+  <g transform="translate(470,140)">
+    <text x="0" y="235" font-size="250" font-weight="800" font-family="Segoe UI, Arial, sans-serif" letter-spacing="-16" fill="#F7FAFD">accelerate</text>
+    <text x="18" y="348" font-size="72" font-weight="300" font-family="Segoe UI, Arial, sans-serif" letter-spacing="4" fill="#E6EDF7">Autonomous Quality Engineering</text>
+  </g>
+</svg>

@@ -45,6 +45,8 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
     where,
     include: {
       project: true,
+      epic: true,
+      feature: true,
       testSuite: true,
     },
     orderBy: { createdAt: 'desc' },
@@ -58,11 +60,11 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
  * Crea una nueva historia de usuario (HDU)
  */
 router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, projectId } = req.body;
+  const { title, description, acceptanceCriteria, priority, storyPoints, projectId, featureId } = req.body;
 
   // Validar campos requeridos
-  if (!title || !description || !acceptanceCriteria || !projectId) {
-    throw new ApiError('Faltan campos requeridos: title, description, acceptanceCriteria, projectId', 400);
+  if (!title || !description || !acceptanceCriteria || !projectId || !featureId) {
+    throw new ApiError('Faltan campos requeridos: title, description, acceptanceCriteria, projectId, featureId', 400);
   }
 
   // Verificar que el proyecto existe y pertenece al usuario
@@ -73,6 +75,21 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     throw new ApiError('Proyecto no encontrado', 404);
   }
 
+  // Validar que la feature exista y pertenezca al proyecto del usuario
+  const feature = await prisma.feature.findFirst({
+    where: {
+      id: featureId,
+      epic: {
+        projectId,
+        project: { userId: req.user!.id },
+      },
+    },
+  });
+
+  if (!feature) {
+    throw new ApiError('Feature no encontrada o no pertenece al proyecto', 404);
+  }
+
   const userStory = await prisma.userStory.create({
     data: {
       title,
@@ -81,13 +98,16 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       priority: priority || 'MEDIUM',
       storyPoints,
       projectId,
+      featureId,
+      epicId: feature.epicId,
       userId: req.user!.id,
-      status: 'NEW',
-      workflowState: 'NEW',
+      status: 'DRAFT',
       syncStatus: 'UNSYNCED',
     },
     include: {
       project: true,
+      epic: true,
+      feature: true,
     },
   });
 
@@ -103,6 +123,8 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     where: { id: req.params.id, userId: req.user!.id },
     include: {
       project: true,
+      epic: true,
+      feature: true,
       testSuite: true,
     },
   });
@@ -119,7 +141,7 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
  * Actualiza una historia de usuario
  */
 router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, status } = req.body;
+  const { title, description, acceptanceCriteria, priority, storyPoints, status, featureId } = req.body;
 
   // Verificar que la HDU existe y pertenece al usuario
   const existingStory = await prisma.userStory.findFirst({
@@ -137,10 +159,33 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   if (storyPoints !== undefined) updateData.storyPoints = storyPoints
   if (status !== undefined) updateData.status = status
 
+  if (featureId !== undefined) {
+    if (!featureId) {
+      throw new ApiError('featureId es obligatorio para la HDU', 400)
+    }
+
+    const feature = await prisma.feature.findFirst({
+      where: {
+        id: featureId,
+        epic: {
+          projectId: existingStory.projectId,
+          project: { userId: req.user!.id },
+        },
+      },
+    })
+
+    if (!feature) {
+      throw new ApiError('Feature no encontrada o no pertenece al proyecto de la HDU', 404)
+    }
+
+    updateData.featureId = featureId
+    updateData.epicId = feature.epicId
+  }
+
   const updatedStory = await prisma.userStory.update({
     where: { id: req.params.id },
     data: updateData,
-    include: { project: true, testSuite: true },
+    include: { project: true, epic: true, feature: true, testSuite: true },
   });
 
   res.json({ userStory: updatedStory });
@@ -253,7 +298,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     : validationResult.score;
 
   const workflowState = advanceStoryStatus({
-    currentStatus: normalizeExternalStatus(String(userStory.status || 'NEW')),
+    currentStatus: normalizeExternalStatus(String(userStory.status || 'DRAFT')),
     dorScore: finalScore,
     isReady: finalScore >= 70 && validationResult.isReady,
   });
@@ -291,9 +336,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         } : null,
       })),
       qualityScore: finalScore,
-      status: workflowState.nextStatus,
-      workflowState: workflowState.nextStatus,
-      isReady,
+      status: isReady ? 'READY' : 'IN_REVIEW',
     },
     include: {
       project: true,
@@ -317,7 +360,6 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     aiAnalysis,
   });
 }));
-
 /**
  * POST /api/user-stories/:id/generate-tests
  * Genera la suite de pruebas funcionales para una HDU
@@ -357,8 +399,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
           dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
           isReady: validationResult.isReady,
           qualityScore: validationResult.score,
-          status: validationResult.isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
-          workflowState: validationResult.isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
+          status: validationResult.isReady ? 'READY' : 'IN_REVIEW',
         },
       });
 
@@ -408,8 +449,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
   await prisma.userStory.update({
     where: { id: req.params.id },
     data: {
-      status: 'IN_DEVELOPMENT',
-      workflowState: 'IN_DEVELOPMENT',
+      status: 'IN_PROGRESS',
     },
   });
 

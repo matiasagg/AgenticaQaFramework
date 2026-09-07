@@ -34,10 +34,12 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <Navbar />
-      <div className="flex">
+      <div className="flex min-h-[calc(100vh-4rem)]">
         <Sidebar />
-        <main className="flex-1 p-6 ml-64">
-          <Outlet />
+        <main className="flex-1 p-6">
+          <div className="max-w-[1600px] mx-auto">
+            <Outlet />
+          </div>
         </main>
       </div>
       {/* Chat IA global disponible en todas las páginas */}
