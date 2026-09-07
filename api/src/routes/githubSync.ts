@@ -36,12 +36,14 @@ type IssueTargetType = 'EPIC' | 'FEATURE' | 'HDU';
 function detectIssueTarget(issue: { title: string; labels: Array<{ name: string }> }): IssueTargetType {
   const labels = issue.labels.map((l) => l.name.toLowerCase());
   const title = issue.title.toLowerCase();
+  const hasTitlePrefix = (type: string) =>
+    new RegExp(`^\\[\\s*${type}(?:\\s*[-_:]\\s*[^\\]]+|\\s*)\\]`).test(title);
 
-  if (labels.includes('epic') || labels.includes('epica') || title.startsWith('[epic]') || title.startsWith('[epica]')) {
+  if (labels.includes('epic') || labels.includes('epica') || hasTitlePrefix('epic') || hasTitlePrefix('epica')) {
     return 'EPIC';
   }
 
-  if (labels.includes('feature') || title.startsWith('[feature]')) {
+  if (labels.includes('feature') || hasTitlePrefix('feature')) {
     return 'FEATURE';
   }
 
@@ -49,7 +51,7 @@ function detectIssueTarget(issue: { title: string; labels: Array<{ name: string 
 }
 
 function normalizeIssueTitle(title: string): string {
-  return title.replace(/^\s*\[(epic|epica|feature|hdu)\]\s*/i, '').trim();
+  return title.replace(/^\s*\[(epic|epica|feature|hdu)(?:\s*[-_:]\s*[^\]]+)?\]\s*/i, '').trim();
 }
 
 async function ensureDefaultEpic(projectId: string): Promise<{ id: string }> {

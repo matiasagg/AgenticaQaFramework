@@ -176,6 +176,20 @@ describe('GitHub Sync Routes', () => {
       })
     })
 
+    it('should classify an issue with a numbered feature prefix as a feature', async () => {
+      mocks.mockFetchIssues.mockResolvedValue([{
+        ...mockIssue,
+        title: '[FEATURE-001] User authentication',
+        labels: [{ name: 'hdu' }],
+      }])
+
+      const app = createApp()
+      const res = await request(app).get('/api/github-sync/proj-1/issues')
+
+      expect(res.status).toBe(200)
+      expect(res.body.issues[0].targetType).toBe('FEATURE')
+    })
+
     it('should return 404 if project not found', async () => {
       mocks.mockPrisma.project.findFirst.mockResolvedValue(null)
 
