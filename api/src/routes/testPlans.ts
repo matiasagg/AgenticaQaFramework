@@ -27,7 +27,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
     where,
     include: {
       project: true,
-      testSuites: { include: { userStory: true } },
+      testSuites: { include: { userStory: true, childSuites: true, testLinks: { include: { testCase: true } } } },
       userStories: { select: { id: true, title: true, status: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -37,7 +37,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
 
 // POST /api/test-plans - Crear plan de prueba
 router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { name, description, projectId } = req.body;
+  const { name, description, projectId, planType, tags, sourcePlanId } = req.body;
   if (!name || !projectId) {
     throw new ApiError('Faltan campos requeridos: name, projectId', 400);
   }
@@ -46,9 +46,22 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     where: { id: projectId, userId: req.user!.id },
   });
   if (!project) throw new ApiError('Proyecto no encontrado', 404);
+  if (sourcePlanId) {
+    const sourcePlan = await prisma.testPlan.findFirst({
+      where: { id: sourcePlanId, projectId, project: { userId: req.user!.id } },
+    });
+    if (!sourcePlan) throw new ApiError('Plan origen no encontrado', 404);
+  }
 
   const testPlan = await prisma.testPlan.create({
-    data: { name, description, projectId },
+    data: {
+      name,
+      description: description || '',
+      projectId,
+      planType: planType || 'CUSTOM',
+      tags: Array.isArray(tags) ? tags : [],
+      sourcePlanId: sourcePlanId || null,
+    },
     include: { project: true, testSuites: true },
   });
   res.status(201).json({ testPlan });
@@ -60,7 +73,7 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     where: { id: req.params.id, project: { userId: req.user!.id } },
     include: {
       project: true,
-      testSuites: { include: { userStory: true } },
+      testSuites: { include: { userStory: true, childSuites: true, testLinks: { include: { testCase: true } } } },
       userStories: true,
     },
   });
@@ -70,15 +83,27 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
 
 // PUT /api/test-plans/:id - Actualizar plan
 router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { name, description, status } = req.body;
+  const { name, description, status, tags, sourcePlanId } = req.body;
   const existing = await prisma.testPlan.findFirst({
     where: { id: req.params.id, project: { userId: req.user!.id } },
   });
   if (!existing) throw new ApiError('TestPlan no encontrado', 404);
+  if (sourcePlanId) {
+    const sourcePlan = await prisma.testPlan.findFirst({
+      where: { id: sourcePlanId, projectId: existing.projectId, project: { userId: req.user!.id } },
+    });
+    if (!sourcePlan || sourcePlan.id === existing.id) throw new ApiError('Plan origen no válido', 400);
+  }
 
   const testPlan = await prisma.testPlan.update({
     where: { id: req.params.id },
-    data: { ...(name && { name }), ...(description && { description }), ...(status && { status }) },
+    data: {
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(status && { status }),
+      ...(tags !== undefined && { tags: Array.isArray(tags) ? tags : [] }),
+      ...(sourcePlanId !== undefined && { sourcePlanId: sourcePlanId || null }),
+    },
     include: { project: true, testSuites: true },
   });
   res.json({ testPlan });
