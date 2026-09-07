@@ -50,6 +50,9 @@ const mocks = vi.hoisted(() => {
   const mockFetchPullRequests = vi.fn()
   const mockMapIssueToUserStory = vi.fn()
   const mockBuildIssueDescription = vi.fn((description: string, githubUrl: string) => `${description}\n\n---\n🔗 Issue original: ${githubUrl}`)
+  const mockHasGitHubIssueChanged = vi.fn((issue: any, syncedAt?: Date | string | null) =>
+    !syncedAt || new Date(issue.updated_at).getTime() > new Date(syncedAt).getTime()
+  )
 
   return {
     mockUserId,
@@ -59,6 +62,7 @@ const mocks = vi.hoisted(() => {
     mockFetchPullRequests,
     mockMapIssueToUserStory,
     mockBuildIssueDescription,
+    mockHasGitHubIssueChanged,
   }
 })
 
@@ -86,8 +90,8 @@ vi.mock('../../services/githubIntegration', () => ({
   fetchBranches: (...args: any[]) => mocks.mockFetchBranches(...args),
   fetchPullRequests: (...args: any[]) => mocks.mockFetchPullRequests(...args),
   mapIssueToUserStory: (...args: any[]) => mocks.mockMapIssueToUserStory(...args),
-  buildIssueDescription: (description: string, githubUrl: string) =>
-    mocks.mockBuildIssueDescription(description, githubUrl),
+  buildIssueDescription: (...args: any[]) => (mocks.mockBuildIssueDescription as any)(...args),
+  hasGitHubIssueChanged: (...args: any[]) => (mocks.mockHasGitHubIssueChanged as any)(...args),
   parseRepoUrl: vi.fn(),
 }))
 
@@ -139,6 +143,9 @@ describe('GitHub Sync Routes', () => {
     // El mapeo por defecto de un issue
     mocks.mockMapIssueToUserStory.mockReturnValue(mockMapped)
     mocks.mockBuildIssueDescription.mockImplementation((description: string, githubUrl: string) => `${description}\n\n---\n🔗 Issue original: ${githubUrl}`)
+    mocks.mockHasGitHubIssueChanged.mockImplementation((issue: any, syncedAt?: Date | string | null) =>
+      !syncedAt || new Date(issue.updated_at).getTime() > new Date(syncedAt).getTime()
+    )
     // Por defecto, el proyecto existe con repository configurado
     mocks.mockPrisma.project.findFirst.mockResolvedValue(mockProject)
     mocks.mockPrisma.userStory.findMany.mockResolvedValue([])
@@ -268,6 +275,22 @@ describe('GitHub Sync Routes', () => {
       expect(res.status).toBe(404)
     })
 
+    it('should identify imported issues changed in GitHub', async () => {
+      mocks.mockFetchIssues.mockResolvedValue([mockIssue])
+      mocks.mockPrisma.userStory.findMany.mockResolvedValue([{
+        id: 'us-existing-1',
+        externalId: '42',
+        title: mockMapped.title,
+        syncedAt: new Date('2024-01-01T00:00:00Z'),
+      }])
+
+      const app = createApp()
+      const res = await request(app).get('/api/github-sync/proj-1/issues')
+
+      expect(res.status).toBe(200)
+      expect(res.body.issues[0]).toMatchObject({ alreadyImported: true, needsSync: true })
+    })
+
     it('should handle individual import errors gracefully', async () => {
       mocks.mockFetchIssues.mockResolvedValue([
         mockIssue,
@@ -288,6 +311,30 @@ describe('GitHub Sync Routes', () => {
       expect(res.body.summary.success).toBe(1)
       expect(res.body.summary.failed).toBe(1)
       expect(res.body.errors).toHaveLength(1)
+    })
+
+    describe('POST /api/github-sync/:projectId/sync', () => {
+      it('should update an imported HDU when its GitHub issue changed', async () => {
+        mocks.mockFetchIssues.mockResolvedValue([mockIssue])
+        mocks.mockPrisma.userStory.findMany.mockResolvedValue([{
+          id: 'us-existing-1',
+          externalId: '42',
+          syncedAt: new Date('2024-01-01T00:00:00Z'),
+        }])
+        mocks.mockPrisma.userStory.update.mockResolvedValue({ id: 'us-existing-1' })
+
+        const app = createApp()
+        const res = await request(app)
+          .post('/api/github-sync/proj-1/sync')
+          .send({ issueNumbers: [42] })
+
+        expect(res.status).toBe(200)
+        expect(res.body.summary).toEqual({ total: 1, synced: 1, skipped: 0 })
+        expect(mocks.mockPrisma.userStory.update).toHaveBeenCalledWith(expect.objectContaining({
+          where: { id: 'us-existing-1' },
+          data: expect.objectContaining({ syncStatus: 'SYNCED' }),
+        }))
+      })
     })
   })
 

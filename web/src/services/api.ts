@@ -261,6 +261,11 @@ export const githubSyncApi = {
     return response.data
   },
 
+  syncIssues: async (projectId: string, issueNumbers: number[]) => {
+    const response = await api.post(`/github-sync/${projectId}/sync`, { issueNumbers })
+    return response.data
+  },
+
   getBranches: async (projectId: string) => {
     const response = await api.get(`/github-sync/${projectId}/branches`)
     return response.data

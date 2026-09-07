@@ -14,6 +14,7 @@ interface GitHubIssuePreview {
   labels: string[]
   targetType: 'EPIC' | 'FEATURE' | 'HDU'
   alreadyImported: boolean
+  needsSync: boolean
   mapped: {
     title: string
     priority: string
@@ -40,6 +41,7 @@ export default function GitHubSyncPage() {
   const [importing, setImporting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const pendingUpdates = issues.filter(issue => issue.needsSync)
 
   useEffect(() => {
     if (token) fetchProjects()
@@ -86,6 +88,8 @@ export default function GitHubSyncPage() {
     if (selectedProject) {
       loadIssues()
       loadPulls()
+      const interval = window.setInterval(loadIssues, 60_000)
+      return () => window.clearInterval(interval)
     }
   }, [selectedProject])
 
@@ -115,6 +119,22 @@ export default function GitHubSyncPage() {
       setError(err?.error?.message || 'Error al importar issues')
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleSync = async () => {
+    if (selectedIssues.length === 0) return
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await githubSyncApi.syncIssues(selectedProject, selectedIssues)
+      setMessage(`✅ ${res.summary.synced} HDUs actualizadas desde GitHub`)
+      setSelectedIssues([])
+      await loadIssues()
+    } catch (err: any) {
+      setError(err?.error?.message || 'Error al sincronizar cambios de GitHub')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -158,6 +178,15 @@ export default function GitHubSyncPage() {
         </div>
       )}
 
+      {pendingUpdates.length > 0 && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+          <p className="text-yellow-800 dark:text-yellow-200">
+            Hay {pendingUpdates.length} HDU{pendingUpdates.length === 1 ? '' : 's'} con cambios en GitHub.
+            Selecciónalas para sincronizarlas.
+          </p>
+        </div>
+      )}
+
       {/* Selector de proyecto */}
       <div className="card">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -193,6 +222,13 @@ export default function GitHubSyncPage() {
             >
               {importing ? 'Importando...' : `Importar ${selectedIssues.length} seleccionados`}
             </button>
+            <button
+              onClick={handleSync}
+              disabled={loading || selectedIssues.every(number => !issues.find(issue => issue.number === number)?.needsSync)}
+              className="btn-secondary text-sm"
+            >
+              Sincronizar cambios
+            </button>
           </div>
         </div>
 
@@ -217,12 +253,12 @@ export default function GitHubSyncPage() {
                     ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700'
                     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
-                onClick={() => !issue.alreadyImported && toggleIssue(issue.number)}
+                onClick={() => (!issue.alreadyImported || issue.needsSync) && toggleIssue(issue.number)}
               >
                 <input
                   type="checkbox"
                   checked={selectedIssues.includes(issue.number)}
-                  disabled={issue.alreadyImported}
+                  disabled={issue.alreadyImported && !issue.needsSync}
                   onChange={() => toggleIssue(issue.number)}
                   className="w-4 h-4"
                 />
