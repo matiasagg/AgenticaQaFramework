@@ -24,6 +24,10 @@ interface UserStory {
   qualityScore: number | null
   testSuite: any
   projectId: string
+  epicId?: string | null
+  featureId?: string | null
+  epic?: { id: string; name: string } | null
+  feature?: { id: string; name: string } | null
   createdAt: string
 }
 
@@ -50,6 +54,8 @@ export default function UserStoriesPage() {
   const { token } = useAuth()
   const [userStories, setUserStories] = useState<UserStory[]>([])
   const [projects, setProjects] = useState<any[]>([])
+  const [epics, setEpics] = useState<any[]>([])
+  const [features, setFeatures] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
@@ -68,6 +74,8 @@ export default function UserStoriesPage() {
     priority: 'MEDIUM',
     storyPoints: 5,
     projectId: '',
+    epicId: '',
+    featureId: '',
   })
 
   useEffect(() => {
@@ -93,10 +101,43 @@ export default function UserStoriesPage() {
       const response = await api.get('/projects')
       setProjects(response.data.projects || [])
       if (response.data.projects?.length > 0) {
-        setFormData(prev => ({ ...prev, projectId: response.data.projects[0].id }))
+        const projectId = response.data.projects[0].id
+        setFormData(prev => ({ ...prev, projectId }))
+        await fetchEpics(projectId)
       }
     } catch (error) {
       console.error('Error fetching projects:', error)
+    }
+  }
+
+  const fetchEpics = async (projectId: string) => {
+    try {
+      const response = await api.get('/epics', { params: { projectId } })
+      const list = response.data.epics || []
+      setEpics(list)
+      const epicId = list[0]?.id || ''
+      setFormData((prev) => ({ ...prev, epicId, featureId: '' }))
+      if (epicId) {
+        await fetchFeatures(epicId)
+      } else {
+        setFeatures([])
+      }
+    } catch (error) {
+      console.error('Error fetching epics:', error)
+      setEpics([])
+      setFeatures([])
+    }
+  }
+
+  const fetchFeatures = async (epicId: string) => {
+    try {
+      const response = await api.get('/features', { params: { epicId } })
+      const list = response.data.features || []
+      setFeatures(list)
+      setFormData((prev) => ({ ...prev, featureId: list[0]?.id || '' }))
+    } catch (error) {
+      console.error('Error fetching features:', error)
+      setFeatures([])
     }
   }
 
@@ -115,6 +156,8 @@ export default function UserStoriesPage() {
         priority: 'MEDIUM',
         storyPoints: 5,
         projectId: projects[0]?.id || '',
+        epicId: '',
+        featureId: '',
       })
       fetchUserStories()
     } catch (error: any) {
@@ -166,7 +209,14 @@ export default function UserStoriesPage() {
       priority: story.priority,
       storyPoints: story.storyPoints || 5,
       projectId: story.projectId,
+      epicId: story.epicId || '',
+      featureId: story.featureId || '',
     })
+    if (story.projectId) {
+      fetchEpics(story.projectId).then(() => {
+        if (story.epicId) fetchFeatures(story.epicId)
+      })
+    }
     setShowEditForm(true)
   }
 
@@ -289,7 +339,11 @@ export default function UserStoriesPage() {
                 ) : (
                   <select
                     value={formData.projectId}
-                    onChange={(e) => setFormData(prev => ({ ...prev, projectId: e.target.value }))}
+                    onChange={async (e) => {
+                      const projectId = e.target.value
+                      setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
+                      if (projectId) await fetchEpics(projectId)
+                    }}
                     className="input-field"
                     required
                   >
@@ -299,6 +353,45 @@ export default function UserStoriesPage() {
                     ))}
                   </select>
                 )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Épica *
+                  </label>
+                  <select
+                    value={formData.epicId}
+                    onChange={async (e) => {
+                      const epicId = e.target.value
+                      setFormData(prev => ({ ...prev, epicId, featureId: '' }))
+                      if (epicId) await fetchFeatures(epicId)
+                    }}
+                    className="input-field mt-1"
+                    required
+                  >
+                    <option value="">Seleccionar épica...</option>
+                    {epics.map((ep) => (
+                      <option key={ep.id} value={ep.id}>{ep.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Feature *
+                  </label>
+                  <select
+                    value={formData.featureId}
+                    onChange={(e) => setFormData(prev => ({ ...prev, featureId: e.target.value }))}
+                    className="input-field mt-1"
+                    required
+                  >
+                    <option value="">Seleccionar feature...</option>
+                    {features.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -610,7 +703,11 @@ export default function UserStoriesPage() {
                 </label>
                 <select
                   value={formData.projectId}
-                  onChange={(e) => setFormData(prev => ({ ...prev, projectId: e.target.value }))}
+                  onChange={async (e) => {
+                    const projectId = e.target.value
+                    setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
+                    if (projectId) await fetchEpics(projectId)
+                  }}
                   className="input-field"
                   required
                 >
@@ -619,6 +716,45 @@ export default function UserStoriesPage() {
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Épica *
+                  </label>
+                  <select
+                    value={formData.epicId}
+                    onChange={async (e) => {
+                      const epicId = e.target.value
+                      setFormData(prev => ({ ...prev, epicId, featureId: '' }))
+                      if (epicId) await fetchFeatures(epicId)
+                    }}
+                    className="input-field mt-1"
+                    required
+                  >
+                    <option value="">Seleccionar épica...</option>
+                    {epics.map((ep) => (
+                      <option key={ep.id} value={ep.id}>{ep.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Feature *
+                  </label>
+                  <select
+                    value={formData.featureId}
+                    onChange={(e) => setFormData(prev => ({ ...prev, featureId: e.target.value }))}
+                    className="input-field mt-1"
+                    required
+                  >
+                    <option value="">Seleccionar feature...</option>
+                    {features.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -763,6 +899,8 @@ export default function UserStoriesPage() {
                   <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
                     <span>Prioridad: {story.priority}</span>
                     {story.storyPoints && <span>Story Points: {story.storyPoints}</span>}
+                    <span>Épica: {story.epic?.name || 'Sin épica'}</span>
+                    <span>Feature: {story.feature?.name || 'Sin feature'}</span>
                     {story.testSuite && <span className="text-green-600">✓ Suite generada</span>}
                   </div>
                 </div>

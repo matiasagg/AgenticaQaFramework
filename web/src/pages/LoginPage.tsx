@@ -6,6 +6,7 @@
  */
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import BrandLogo from '../components/BrandLogo'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function LoginPage() {
@@ -33,11 +34,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="max-w-md w-full space-y-8 p-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-primary-600">QA SaaS Platform</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">Inicia sesión en tu cuenta</p>
+          <div className="flex justify-center">
+            <BrandLogo className="justify-center" />
+          </div>
+          <p className="mt-2 text-gray-300">Inicia sesión en tu cuenta</p>
         </div>
         
         <div className="card dark:bg-gray-800">

@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { TestCase, TestType, Priority, TestStatus } from '../../types';
-import { testsApi } from '../../services/api';
+import { testsApi, projectsApi } from '../../services/api';
 
 interface TestListProps {
   onSelectTest?: (test: TestCase) => void;
@@ -33,12 +33,16 @@ export default function TestList({ onSelectTest }: TestListProps) {
   const [tests, setTests] = useState<TestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newData, setNewData] = useState<any>({ title: '', description: '', type: 'FUNCTIONAL', priority: 'MEDIUM' });
   const [filterType, setFilterType] = useState<TestType | ''>('');
   const [filterPriority, setFilterPriority] = useState<Priority | ''>('');
   const [filterStatus, setFilterStatus] = useState<TestStatus | ''>('');
+  const [projects, setProjects] = useState<any[]>([]);
 
   useEffect(() => {
     fetchTests();
+    fetchProjects();
   }, [filterType, filterPriority, filterStatus]);
 
   /** Obtiene los casos de prueba desde la API con filtros aplicados */
@@ -59,6 +63,76 @@ export default function TestList({ onSelectTest }: TestListProps) {
       setLoading(false);
     }
   };
+
+  const createTest = async () => {
+    try {
+      setLoading(true)
+      await testsApi.create({
+        title: newData.title,
+        description: newData.description,
+        preconditions: [],
+        steps: [],
+        expectedResults: [],
+        priority: newData.priority,
+        type: newData.type,
+        projectId: newData.projectId || projects[0]?.id || '',
+      })
+      setShowCreate(false)
+      setNewData({ title: '', description: '', type: 'FUNCTIONAL', priority: 'MEDIUM' })
+      await fetchTests()
+    } catch (err) {
+      console.error('Error creating test', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchProjects = async () => {
+    try {
+      const res = await projectsApi.getAll()
+      setProjects(res.projects || [])
+      if (!newData.projectId && res.projects?.length > 0) setNewData((d: any) => ({ ...d, projectId: res.projects[0].id }))
+    } catch (err) {
+      console.error('Error loading projects', err)
+    }
+  }
+
+  const deleteTest = async (id: string) => {
+    if (!confirm('Eliminar caso de prueba?')) return
+    try {
+      await testsApi.delete(id)
+      await fetchTests()
+    } catch (err) {
+      console.error('Error deleting test', err)
+    }
+  }
+  const [editingTest, setEditingTest] = useState<TestCase | null>(null);
+
+  const openEditTest = (test: TestCase) => {
+    setEditingTest(test);
+    setShowCreate(true);
+    setNewData({ title: test.title, description: test.description, type: test.type, priority: test.priority, projectId: test.projectId });
+  }
+
+  const saveEditTest = async () => {
+    if (!editingTest) return;
+    try {
+      setLoading(true);
+      await testsApi.update(editingTest.id, {
+        title: newData.title,
+        description: newData.description,
+        type: newData.type,
+        priority: newData.priority,
+      });
+      setEditingTest(null);
+      setShowCreate(false);
+      await fetchTests();
+    } catch (err) {
+      console.error('Error updating test', err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString('es-ES', {
@@ -81,10 +155,42 @@ export default function TestList({ onSelectTest }: TestListProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          Casos de Prueba
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Casos de Prueba</h1>
+        <div>
+          <button onClick={() => setShowCreate(true)} className="btn-primary">+ Nuevo Caso</button>
+        </div>
       </div>
+
+      {showCreate && (
+        <div className="card p-4">
+          <h3 className="font-medium">{editingTest ? 'Editar Caso de Prueba' : 'Nuevo Caso de Prueba'}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+            <select className="input-field" value={newData.projectId || ''} onChange={(e) => setNewData({ ...newData, projectId: e.target.value })}>
+              {projects.length === 0 ? <option value="">Sin proyecto</option> : projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <input placeholder="Título" className="input-field" value={newData.title} onChange={(e) => setNewData({ ...newData, title: e.target.value })} />
+            <select className="input-field" value={newData.type} onChange={(e) => setNewData({ ...newData, type: e.target.value as any })}>
+              <option value="FUNCTIONAL">Funcional</option>
+              <option value="REGRESSION">Regresión</option>
+              <option value="EXPLORATORY">Exploratorio</option>
+            </select>
+            <textarea placeholder="Descripción" className="input-field col-span-2" value={newData.description} onChange={(e) => setNewData({ ...newData, description: e.target.value })} />
+          </div>
+          <div className="mt-3">
+            {editingTest ? (
+              <>
+                <button className="btn-primary" onClick={saveEditTest}>Guardar</button>
+                <button className="btn-ghost ml-2" onClick={() => { setShowCreate(false); setEditingTest(null); }}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button className="btn-primary" onClick={createTest}>Crear</button>
+                <button className="btn-ghost ml-2" onClick={() => setShowCreate(false)}>Cancelar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card">
@@ -185,16 +291,16 @@ export default function TestList({ onSelectTest }: TestListProps) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Fecha
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
                 {tests.map((test) => (
                   <tr
                     key={test.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                    onClick={() => onSelectTest?.(test)}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 cursor-pointer" onClick={() => onSelectTest?.(test)}>
                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                         {test.title}
                       </div>
@@ -217,11 +323,14 @@ export default function TestList({ onSelectTest }: TestListProps) {
                         {test.status === 'DRAFT' ? 'Borrador' : test.status === 'ACTIVE' ? 'Activo' : 'Deprecado'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {test.steps.length} pasos
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {formatDate(test.createdAt)}
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{test.steps.length} pasos</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(test.createdAt)}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-2">
+                        <button onClick={() => onSelectTest?.(test)} className="btn-ghost">Ver</button>
+                        <button onClick={() => openEditTest(test)} className="btn-ghost">Editar</button>
+                        <button onClick={() => deleteTest(test.id)} className="btn-danger">Eliminar</button>
+                      </div>
                     </td>
                   </tr>
                 ))}

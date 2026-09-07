@@ -316,6 +316,37 @@ export const epicsApi = {
   },
 }
 
+// Features services
+export const featuresApi = {
+  getAll: async (projectId?: string, epicId?: string) => {
+    const params: any = {}
+    if (projectId) params.projectId = projectId
+    if (epicId) params.epicId = epicId
+    const response = await api.get('/features', { params })
+    return response.data
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/features/${id}`)
+    return response.data
+  },
+
+  create: async (data: { name: string; description?: string; epicId: string }) => {
+    const response = await api.post('/features', data)
+    return response.data
+  },
+
+  update: async (id: string, data: Partial<{ name: string; description: string; status: string }>) => {
+    const response = await api.put(`/features/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/features/${id}`)
+    return response.data
+  },
+}
+
 // Plans services
 export const plansApi = {
   getAll: async () => {
@@ -330,6 +361,48 @@ export const plansApi = {
 
   generate: async () => {
     const response = await api.post('/plans/generate')
+    return response.data
+  },
+}
+
+// Test Plans (test-plans) services
+export const testPlansApi = {
+  getAll: async (projectId?: string) => {
+    const params = projectId ? { params: { projectId } } : {}
+    const response = await api.get('/test-plans', params)
+    return response.data
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/test-plans/${id}`)
+    return response.data
+  },
+}
+
+// TestSuites services
+export const testSuitesApi = {
+  getAll: async (params?: { projectId?: string; testPlanId?: string; userStoryId?: string }) => {
+    const response = await api.get('/test-suites', { params })
+    return response.data
+  },
+
+  getById: async (id: string) => {
+    const response = await api.get(`/test-suites/${id}`)
+    return response.data
+  },
+
+  create: async (data: { title: string; description?: string; projectId: string; testPlanId?: string; userStoryId?: string; environment?: string }) => {
+    const response = await api.post('/test-suites', data)
+    return response.data
+  },
+
+  update: async (id: string, data: Partial<{ title: string; description: string; status: string; environment: string; testPlanId?: string | null }>) => {
+    const response = await api.put(`/test-suites/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: string) => {
+    const response = await api.delete(`/test-suites/${id}`)
     return response.data
   },
 }

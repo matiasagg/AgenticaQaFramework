@@ -8,7 +8,9 @@ import TestsPage from './pages/TestsPage'
 import CoveragePage from './pages/CoveragePage'
 import PlansPage from './pages/PlansPage'
 import EpicsPage from './pages/EpicsPage'
+import FeaturesPage from './pages/FeaturesPage'
 import TestPlansPage from './pages/TestPlansPage'
+import TestSuitesPage from './pages/TestSuitesPage'
 import GitHubSyncPage from './pages/GitHubSyncPage'
 import UserStoriesPage from './pages/UserStoriesPage'
 import SettingsPage from './pages/SettingsPage'
@@ -38,9 +40,11 @@ function App() {
         <Route path="bugs" element={<BugsPage />} />
         <Route path="tests" element={<TestsPage />} />
         <Route path="coverage" element={<CoveragePage />} />
-<Route path="plans" element={<PlansPage />} />
-<Route path="epics" element={<EpicsPage />} />
-<Route path="test-plans" element={<TestPlansPage />} />
+        <Route path="plans" element={<PlansPage />} />
+        <Route path="epics" element={<EpicsPage />} />
+        <Route path="features" element={<FeaturesPage />} />
+        <Route path="test-plans" element={<TestPlansPage />} />
+        <Route path="test-suites" element={<TestSuitesPage />} />
         <Route path="github-sync" element={<GitHubSyncPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
