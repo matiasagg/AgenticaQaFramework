@@ -137,4 +137,36 @@ describe('Projects Routes', () => {
       data: expect.not.objectContaining({ githubToken: expect.anything() }),
     })
   })
+
+  it('should create the default test plans with defined tags', async () => {
+    mocks.mockPrisma.project.create.mockResolvedValue({
+      id: 'proj-new',
+      name: 'Nuevo Proyecto',
+      description: 'Desc',
+      repository: null,
+      website: null,
+      githubToken: null,
+      isActive: true,
+      userId: mocks.mockUserId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const app = createApp()
+    const res = await request(app)
+      .post('/api/projects')
+      .send({ name: 'Nuevo Proyecto', description: 'Desc' })
+
+    expect(res.status).toBe(201)
+    const createArg = mocks.mockPrisma.project.create.mock.calls[0][0]
+    expect(createArg.data.testPlans.create).toHaveLength(3)
+    for (const plan of createArg.data.testPlans.create) {
+      expect(Array.isArray(plan.tags)).toBe(true)
+    }
+    expect(createArg.data.testPlans.create).toEqual([
+      expect.objectContaining({ planType: 'REPO', tags: [] }),
+      expect.objectContaining({ planType: 'SDLC', tags: ['regression'] }),
+      expect.objectContaining({ planType: 'CONTINUOUS', tags: ['smoke', 'regression'] }),
+    ])
+  })
 })
