@@ -259,6 +259,7 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
             importedAt: new Date().toISOString(),
             targetType,
           },
+          syncedAt: new Date(),
         },
       });
       imported.push({ id: userStory.id, title: userStory.title, issueNumber: issue.number, targetType });

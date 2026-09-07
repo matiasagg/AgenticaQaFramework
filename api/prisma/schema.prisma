@@ -300,6 +300,14 @@ model UserStory {
   storyPoints     Int?
   status          UserStoryStatus @default(NEW)
 
+  // External sync identity
+  externalSystem  String?
+  externalId      String?
+  externalUrl     String?
+  syncStatus      SyncStatus @default(UNSYNCED)
+  syncMetadata    Json?
+  syncedAt        DateTime?
+
   // DoR (Definition of Ready) fields
   dorScore        Float?
   dorChecklist    Json?
@@ -346,6 +354,8 @@ model UserStory {
   @@index([epicId])
   @@index([featureId])
   @@index([testPlanId])
+  @@unique([projectId, externalSystem, externalId])
+  @@index([externalSystem, externalId])
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -460,6 +470,13 @@ enum UserStoryStatus {
   BLOCKED
   CANCELLED
   ARCHIVED
+}
+
+enum SyncStatus {
+  UNSYNCED
+  SYNCED
+  OUT_OF_SYNC
+  MANUAL
 }
 
 enum SyncStatus {

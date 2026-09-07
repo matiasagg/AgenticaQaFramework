@@ -135,13 +135,14 @@ function createApp() {
 
 describe('GitHub Sync Routes', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     // El mapeo por defecto de un issue
     mocks.mockMapIssueToUserStory.mockReturnValue(mockMapped)
     mocks.mockBuildIssueDescription.mockImplementation((description: string, githubUrl: string) => `${description}\n\n---\n🔗 Issue original: ${githubUrl}`)
     // Por defecto, el proyecto existe con repository configurado
     mocks.mockPrisma.project.findFirst.mockResolvedValue(mockProject)
     mocks.mockPrisma.userStory.findMany.mockResolvedValue([])
+    mocks.mockPrisma.userStory.findFirst.mockResolvedValue(null)
   })
 
   describe('GET /api/github-sync/:projectId/issues', () => {
@@ -215,6 +216,27 @@ describe('GitHub Sync Routes', () => {
       })
       expect(res.body.imported).toHaveLength(1)
       expect(res.body.imported[0].issueNumber).toBe(42)
+    })
+
+    it('should skip import when the GitHub issue was already mapped to a HDU by external id', async () => {
+      mocks.mockFetchIssues.mockResolvedValue([mockIssue])
+      mocks.mockPrisma.userStory.findFirst.mockResolvedValue({
+        id: 'us-existing-1',
+        title: mockMapped.title,
+        externalId: '42',
+        externalSystem: 'GITHUB',
+      })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/github-sync/proj-1/import')
+        .send({ issueNumbers: [42] })
+
+      expect(res.status).toBe(201)
+      expect(mocks.mockPrisma.userStory.create).not.toHaveBeenCalled()
+      expect(res.body.summary.success).toBe(0)
+      expect(res.body.summary.skipped).toBe(1)
+      expect(res.body.skipped[0].issueNumber).toBe(42)
     })
 
     it('should return 400 if issueNumbers is empty', async () => {
