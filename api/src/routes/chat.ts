@@ -95,6 +95,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
         testCases: JSON.parse(JSON.stringify(suite.testCases)),
         coverage: JSON.parse(JSON.stringify(suite.coverage)),
         status: 'READY',
+        tags: [],
         userStoryId: story.id,
         projectId: story.projectId,
       },
@@ -104,6 +105,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
         testCases: JSON.parse(JSON.stringify(suite.testCases)),
         coverage: JSON.parse(JSON.stringify(suite.coverage)),
         status: 'READY',
+        tags: [],
       },
     });
     await prisma.userStory.update({ where: { id: story.id }, data: { status: 'IN_DEVELOPMENT' } });

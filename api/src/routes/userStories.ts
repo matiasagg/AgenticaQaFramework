@@ -444,6 +444,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
       testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
       coverage: JSON.parse(JSON.stringify(testSuite.coverage)),
       status: 'READY',
+      tags: [],
       userStoryId: userStory.id,
       projectId: userStory.projectId,
     },
@@ -453,6 +454,7 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
       testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
       coverage: JSON.parse(JSON.stringify(testSuite.coverage)),
       status: 'READY',
+      tags: [],
     },
   });
 
