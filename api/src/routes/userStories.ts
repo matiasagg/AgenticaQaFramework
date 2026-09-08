@@ -1,4 +1,4 @@
-mas /**
+/**
  * User Stories (HDU) Routes
  * 
  * Endpoints para gestionar Historias de Usuario:
