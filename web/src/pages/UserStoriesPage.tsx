@@ -13,6 +13,8 @@ import api from '../services/api'
 
 interface UserStory {
   id: string
+  displayId?: string | null
+  hduNumber?: number | null
   title: string
   description: string
   acceptanceCriteria: string[]
@@ -880,13 +882,18 @@ export default function UserStoriesPage() {
             <div key={story.id} className="card dark:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center space-x-3">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                      {story.title}
-                    </h3>
-                    <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(story.status)}`}>
-                      {story.status}
-                    </span>
+                   <div className="flex items-center space-x-3">
+                     {story.displayId && (
+                       <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                         {story.displayId}
+                       </span>
+                     )}
+                     <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                       {story.title}
+                     </h3>
+                     <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(story.status)}`}>
+                       {story.status}
+                     </span>
                     {story.dorScore !== null && (
                       <span className={`px-2 py-1 rounded-full text-xs ${story.dorScore >= 70 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                         DoR: {story.dorScore}%
