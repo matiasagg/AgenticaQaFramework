@@ -107,8 +107,8 @@ export function generateTestSuite(
   }, 0);
 
   return {
-    title: `Suite de Pruebas: ${userStory.title}`,
-    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}". ` +
+    title: `[${userStory.id}] ${userStory.title}`,
+    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}" (${userStory.id}). ` +
       `Incluye ${testCases.length} casos de prueba cubriendo funcionalidad, regresión, integración y casos borde.`,
     testCases,
     coverage,
