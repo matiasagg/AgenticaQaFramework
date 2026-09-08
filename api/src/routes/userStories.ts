@@ -458,6 +458,34 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
     },
   });
 
+  // Crear registros individuales de TestCase para cada test generado
+  // Esto permite que los tests se muestren en la sección de "Tests" del frontend
+  for (const tc of testSuite.testCases) {
+    const createdTestCase = await prisma.testCase.create({
+      data: {
+        title: tc.title,
+        description: tc.description,
+        preconditions: tc.preconditions,
+        steps: JSON.parse(JSON.stringify(tc.steps)),
+        expectedResults: tc.expectedResults,
+        priority: tc.priority,
+        type: tc.type,
+        status: 'DRAFT',
+        automationStatus: 'MANUAL',
+        userId: req.user!.id,
+        projectId: userStory.projectId,
+      },
+    })
+
+    // Asociar el test case con la suite mediante TestSuiteTestCase
+    await prisma.testSuiteTestCase.create({
+      data: {
+        testSuiteId: savedTestSuite.id,
+        testCaseId: createdTestCase.id,
+      },
+    })
+  }
+
   // Actualizar estado de la HDU
   await prisma.userStory.update({
     where: { id: req.params.id },
