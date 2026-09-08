@@ -1,7 +1,7 @@
 {
   "name": "qa-saas-platform",
   "version": "1.0.0",
-  "description": "QA SaaS Platform with AI Agents - Complete solution for QA engineers",
+  "description": "Qacelerate - IA Quality Engineering Workspace",
   "private": true,
   "workspaces": [
     "api",

@@ -333,7 +333,7 @@ export default function TestList({ onSelectTest }: TestListProps) {
                         {test.status === 'DRAFT' ? 'Borrador' : test.status === 'ACTIVE' ? 'Activo' : 'Deprecado'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{test.steps.length} pasos</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{(test.steps || []).length} pasos</td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(test.createdAt)}</td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">

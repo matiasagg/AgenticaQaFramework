@@ -306,6 +306,8 @@ model ImprovementPlan {
 // UserStory (HDU) model for managing user stories and their DoR validation
 model UserStory {
   id              String   @id @default(cuid())
+  hduNumber       Int?     @unique
+  displayId       String?  @unique
   title           String
   description     String
   acceptanceCriteria String[]

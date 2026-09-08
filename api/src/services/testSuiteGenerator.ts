@@ -106,9 +106,11 @@ export function generateTestSuite(
     return total + (tc.steps.length * 2); // 2 minutos por paso estimado
   }, 0);
 
+  // Usar displayId si está disponible, sino usar el ID interno
+  const hduRef = (userStory as any).displayId || userStory.id
   return {
-    title: `Suite de Pruebas: ${userStory.title}`,
-    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}". ` +
+    title: `${hduRef} - ${userStory.title}`,
+    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}" (${hduRef}). ` +
       `Incluye ${testCases.length} casos de prueba cubriendo funcionalidad, regresión, integración y casos borde.`,
     testCases,
     coverage,

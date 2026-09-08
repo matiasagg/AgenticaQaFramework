@@ -13,7 +13,11 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { useAuth } from '../../contexts/AuthContext'
 import BrandLogo from '../BrandLogo'
 
-export default function Navbar() {
+interface NavbarProps {
+  onToggleSidebar?: () => void
+}
+
+export default function Navbar({ onToggleSidebar }: NavbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { user, openAiToken, logout } = useAuth()
   const navigate = useNavigate()
@@ -27,6 +31,15 @@ export default function Navbar() {
     <nav className="bg-white border-b border-gray-200 w-full z-50 dark:bg-gray-800 dark:border-gray-700">
       <div className="px-6 py-3 flex items-center justify-between h-16">
         <div className="flex items-center space-x-4">
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className="lg:hidden p-2 text-gray-500 hover:text-gray-700 dark:text-gray-300"
+              aria-label="Toggle menu"
+            >
+              ☰
+            </button>
+          )}
           <Link to="/dashboard" className="inline-flex items-center">
             <BrandLogo compact className="origin-left" />
           </Link>

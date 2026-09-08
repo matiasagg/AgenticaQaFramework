@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "QA SaaS Extension",
   "version": "1.0.0",
-  "description": "Extensión para captura de evidencia y reporte de bugs en QA SaaS Platform",
+  "description": "Qacelerate: captura de evidencia y reporte de bugs para Agile Quality Engineering",
   "permissions": ["activeTab", "tabs", "storage", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {

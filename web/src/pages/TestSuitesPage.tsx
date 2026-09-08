@@ -18,39 +18,55 @@ export default function TestSuitesPage() {
   const [plans, setPlans] = useState<TestPlan[]>([])
   const [editingSuite, setEditingSuite] = useState<SuiteWithPlan | null>(null)
 
-  useEffect(() => {
-    if (!token) return
+   useEffect(() => {
+     if (!token) return
 
-    const fetchSuites = async () => {
-      try {
-        const response = await api.get('/test-plans')
-        const plans: TestPlan[] = response.data.testPlans || []
+     const fetchSuites = async () => {
+       try {
+         // Obtener todas las suites (con y sin plan asociado)
+         const [suitesResponse, plansResponse] = await Promise.all([
+           testSuitesApi.getAll(),
+           api.get('/test-plans').catch(() => ({ data: { testPlans: [] } })),
+         ])
 
-        const flattenedSuites: SuiteWithPlan[] = plans.flatMap((plan) =>
-          (plan.testSuites || []).map((suite) => ({
-            ...suite,
-            planName: plan.name,
-            planStatus: plan.status,
-          })),
-        )
+         const allSuites: TestSuite[] = suitesResponse.suites || []
+         const plans: TestPlan[] = plansResponse.data.testPlans || []
 
-        setSuites(flattenedSuites)
-        // fetch projects for dropdown
-        try {
-          const res = await projectsApi.getAll()
-          setProjects(res.projects || res)
-        } catch (err) {
-          console.error('Error fetching projects', err)
-        }
-      } catch (error) {
-        console.error('Error fetching test suites:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
+         // Crear un mapa de suiteId -> plan info para asociación rápida
+         const suitePlanMap = new Map<string, { name: string; status: string }>()
+         for (const plan of plans) {
+           for (const suite of plan.testSuites || []) {
+             suitePlanMap.set(suite.id, { name: plan.name, status: plan.status })
+           }
+         }
 
-    fetchSuites()
-  }, [token])
+         // Combinar suites con info del plan (si existe)
+         const flattenedSuites: SuiteWithPlan[] = allSuites.map((suite) => {
+           const planInfo = suitePlanMap.get(suite.id)
+           return {
+             ...suite,
+             planName: planInfo?.name,
+             planStatus: planInfo?.status,
+           }
+         })
+
+         setSuites(flattenedSuites)
+         // fetch projects for dropdown
+         try {
+           const res = await projectsApi.getAll()
+           setProjects(res.projects || res)
+         } catch (err) {
+           console.error('Error fetching projects', err)
+         }
+       } catch (error) {
+         console.error('Error fetching test suites:', error)
+       } finally {
+         setLoading(false)
+       }
+     }
+
+     fetchSuites()
+   }, [token])
 
   const handleCreate = async () => {
     try {
@@ -61,16 +77,23 @@ export default function TestSuitesPage() {
         projectId: form.projectId,
         testPlanId: form.testPlanId,
       })
-      // refetch via test-plans to keep flatten behavior
-      const response = await api.get('/test-plans')
-      const plans: TestPlan[] = response.data.testPlans || []
-      const flattenedSuites: SuiteWithPlan[] = plans.flatMap((plan) =>
-        (plan.testSuites || []).map((suite) => ({
-          ...suite,
-          planName: plan.name,
-          planStatus: plan.status,
-        })),
-      )
+      // Refrescar todas las suites
+      const [suitesResponse, plansResponse] = await Promise.all([
+        testSuitesApi.getAll(),
+        api.get('/test-plans').catch(() => ({ data: { testPlans: [] } })),
+      ])
+      const allSuites: TestSuite[] = suitesResponse.suites || []
+      const plans: TestPlan[] = plansResponse.data.testPlans || []
+      const suitePlanMap = new Map<string, { name: string; status: string }>()
+      for (const plan of plans) {
+        for (const suite of plan.testSuites || []) {
+          suitePlanMap.set(suite.id, { name: plan.name, status: plan.status })
+        }
+      }
+      const flattenedSuites: SuiteWithPlan[] = allSuites.map((suite) => {
+        const planInfo = suitePlanMap.get(suite.id)
+        return { ...suite, planName: planInfo?.name, planStatus: planInfo?.status }
+      })
       setSuites(flattenedSuites)
       setShowForm(false)
       setForm({ title: '', description: '', projectId: '', testPlanId: '' })
@@ -97,16 +120,23 @@ export default function TestSuitesPage() {
         environment: editingSuite.environment,
         testPlanId: form.testPlanId,
       })
-      // refresh suites
-      const response = await api.get('/test-plans')
-      const plansResp: TestPlan[] = response.data.testPlans || []
-      const flattenedSuites: SuiteWithPlan[] = plansResp.flatMap((plan) =>
-        (plan.testSuites || []).map((suite) => ({
-          ...suite,
-          planName: plan.name,
-          planStatus: plan.status,
-        })),
-      )
+      // Refrescar todas las suites
+      const [suitesResponse, plansResponse] = await Promise.all([
+        testSuitesApi.getAll(),
+        api.get('/test-plans').catch(() => ({ data: { testPlans: [] } })),
+      ])
+      const allSuites: TestSuite[] = suitesResponse.suites || []
+      const plans: TestPlan[] = plansResponse.data.testPlans || []
+      const suitePlanMap = new Map<string, { name: string; status: string }>()
+      for (const plan of plans) {
+        for (const suite of plan.testSuites || []) {
+          suitePlanMap.set(suite.id, { name: plan.name, status: plan.status })
+        }
+      }
+      const flattenedSuites: SuiteWithPlan[] = allSuites.map((suite) => {
+        const planInfo = suitePlanMap.get(suite.id)
+        return { ...suite, planName: planInfo?.name, planStatus: planInfo?.status }
+      })
       setSuites(flattenedSuites)
       setEditingSuite(null)
       setShowForm(false)

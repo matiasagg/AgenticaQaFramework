@@ -1,7 +1,7 @@
 {
   "name": "qa-saas-extension",
   "version": "1.0.0",
-  "description": "Browser extension for QA SaaS platform - evidence capture",
+  "description": "Qacelerate browser extension for evidence capture and Agile Quality Engineering",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

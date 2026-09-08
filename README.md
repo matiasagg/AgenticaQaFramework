@@ -1,10 +1,12 @@
-# QA SaaS Platform
+# Qacelerate
+
+**IA Quality Engineering Workspace**
 
 Plataforma SaaS para gestión de calidad de software (QA) con validación inteligente de historias de usuario usando IA.
 
 ## Descripción
 
-QA SaaS Platform es una aplicación web completa que permite a equipos de QA:
+Qacelerate es un SaaS para realizar análisis estático de requerimientos y pruebas dinámicas de software:
 
 - Gestionar **proyectos** de prueba
 - Crear y administrar **historias de usuario (HDU)**
@@ -105,6 +107,36 @@ FRONTEND_URL=http://localhost:5173
 # 3. Aplicar el esquema de base de datos (desde api/)
 npx prisma db push
 ```
+
+### Cambios en el esquema Prisma
+
+Cuando modifiques `api/prisma/schema.prisma`, aplica los cambios a la base de datos con una migración para mantener historial y evitar inconsistencias:
+
+```bash
+cd api
+npx prisma migrate dev --name descripcion_del_cambio
+```
+
+Ejemplo:
+
+```bash
+cd api
+npx prisma migrate dev --name add_user_story_status
+```
+
+Esto hará lo siguiente:
+- crea una nueva migración en `api/prisma/migrations/`
+- aplica la migración a la base de datos local
+- genera el cliente Prisma actualizado
+
+Si solo estás trabajando en local y quieres sincronizar rápidamente sin crear historial, también puedes usar:
+
+```bash
+cd api
+npx prisma db push
+```
+
+> En desarrollo es recomendable preferir `prisma migrate dev` cuando cambias el esquema. `db push` sirve más bien para prototipos o sincronización rápida.
 
 ## Ejecución
 

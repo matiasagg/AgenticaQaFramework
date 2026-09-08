@@ -90,6 +90,14 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     throw new ApiError('Feature no encontrada o no pertenece al proyecto', 404);
   }
 
+  // Calcular número correlativo para la HDU
+  const lastHdu = await prisma.userStory.findFirst({
+    orderBy: { hduNumber: 'desc' },
+    select: { hduNumber: true },
+  })
+  const nextHduNumber = (lastHdu?.hduNumber || 0) + 1
+  const displayId = `HDU-${String(nextHduNumber).padStart(3, '0')}`
+
   const userStory = await prisma.userStory.create({
     data: {
       title,
@@ -103,6 +111,8 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       userId: req.user!.id,
       status: 'NEW',
       syncStatus: 'UNSYNCED',
+      hduNumber: nextHduNumber,
+      displayId,
     },
     include: {
       project: true,
@@ -427,23 +437,66 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
     storyPoints: userStory.storyPoints || undefined,
-  };
+  } as any;
+  // Pasar displayId para que el generador lo use en el título
+  (input as any).displayId = userStory.displayId;
 
   // Generar suite de pruebas
   const testSuite = generateTestSuite(input, userStory.projectId);
 
-  // Guardar la suite de pruebas en la base de datos
-  const savedTestSuite = await prisma.testSuite.create({
-    data: {
+  // Guardar la suite de pruebas en la base de datos.
+  // Usamos `upsert` porque `TestSuite.userStoryId` es único: si la HDU ya
+  // tiene una suite generada, la actualizamos en lugar de fallar con un
+  // error de constraint (que antes se traducía en un 400 "Database error").
+  const savedTestSuite = await prisma.testSuite.upsert({
+    where: { userStoryId: userStory.id },
+    create: {
       title: testSuite.title,
       description: testSuite.description,
       testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
       coverage: JSON.parse(JSON.stringify(testSuite.coverage)),
       status: 'READY',
+      tags: [],
       userStoryId: userStory.id,
       projectId: userStory.projectId,
     },
+    update: {
+      title: testSuite.title,
+      description: testSuite.description,
+      testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
+      coverage: JSON.parse(JSON.stringify(testSuite.coverage)),
+      status: 'READY',
+      tags: [],
+    },
   });
+
+  // Crear registros individuales de TestCase para cada test generado
+  // Esto permite que los tests se muestren en la sección de "Tests" del frontend
+  for (const tc of testSuite.testCases) {
+    const createdTestCase = await prisma.testCase.create({
+      data: {
+        title: tc.title,
+        description: tc.description,
+        preconditions: tc.preconditions,
+        steps: JSON.parse(JSON.stringify(tc.steps)),
+        expectedResults: tc.expectedResults,
+        priority: tc.priority,
+        type: tc.type,
+        status: 'DRAFT',
+        automationStatus: 'MANUAL',
+        userId: req.user!.id,
+        projectId: userStory.projectId,
+      },
+    })
+
+    // Asociar el test case con la suite mediante TestSuiteTestCase
+    await prisma.testSuiteTestCase.create({
+      data: {
+        testSuiteId: savedTestSuite.id,
+        testCaseId: createdTestCase.id,
+      },
+    })
+  }
 
   // Actualizar estado de la HDU
   await prisma.userStory.update({
