@@ -1,2 +1,2 @@
-# AgenticaQaFramework
-Agentic QA Framework
+# Qacelerate
+IA Quality Engineering Workspace

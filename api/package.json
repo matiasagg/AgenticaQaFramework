@@ -1,7 +1,7 @@
 {
   "name": "qa-saas-api",
   "version": "1.0.0",
-  "description": "API backend for QA SaaS platform with AI agents",
+  "description": "Qacelerate API for Agile Quality Engineering and software testing",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

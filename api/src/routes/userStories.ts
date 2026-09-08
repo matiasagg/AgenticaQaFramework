@@ -1,4 +1,4 @@
-/**
+mas /**
  * User Stories (HDU) Routes
  * 
  * Endpoints para gestionar Historias de Usuario:
@@ -90,6 +90,14 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     throw new ApiError('Feature no encontrada o no pertenece al proyecto', 404);
   }
 
+  // Calcular número correlativo para la HDU
+  const lastHdu = await prisma.userStory.findFirst({
+    orderBy: { hduNumber: 'desc' },
+    select: { hduNumber: true },
+  })
+  const nextHduNumber = (lastHdu?.hduNumber || 0) + 1
+  const displayId = `HDU-${String(nextHduNumber).padStart(3, '0')}`
+
   const userStory = await prisma.userStory.create({
     data: {
       title,
@@ -103,6 +111,8 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       userId: req.user!.id,
       status: 'NEW',
       syncStatus: 'UNSYNCED',
+      hduNumber: nextHduNumber,
+      displayId,
     },
     include: {
       project: true,
@@ -427,7 +437,9 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
     storyPoints: userStory.storyPoints || undefined,
-  };
+  } as any;
+  // Pasar displayId para que el generador lo use en el título
+  (input as any).displayId = userStory.displayId;
 
   // Generar suite de pruebas
   const testSuite = generateTestSuite(input, userStory.projectId);

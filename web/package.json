@@ -1,7 +1,7 @@
 {
   "name": "qa-saas-web",
   "version": "1.0.0",
-  "description": "Frontend dashboard for QA SaaS platform",
+  "description": "Qacelerate IA Quality Engineering Workspace frontend",
   "type": "module",
   "scripts": {
     "dev": "vite",
