@@ -432,9 +432,13 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
   // Generar suite de pruebas
   const testSuite = generateTestSuite(input, userStory.projectId);
 
-  // Guardar la suite de pruebas en la base de datos
-  const savedTestSuite = await prisma.testSuite.create({
-    data: {
+  // Guardar la suite de pruebas en la base de datos.
+  // Usamos `upsert` porque `TestSuite.userStoryId` es único: si la HDU ya
+  // tiene una suite generada, la actualizamos en lugar de fallar con un
+  // error de constraint (que antes se traducía en un 400 "Database error").
+  const savedTestSuite = await prisma.testSuite.upsert({
+    where: { userStoryId: userStory.id },
+    create: {
       title: testSuite.title,
       description: testSuite.description,
       testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
@@ -442,6 +446,13 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
       status: 'READY',
       userStoryId: userStory.id,
       projectId: userStory.projectId,
+    },
+    update: {
+      title: testSuite.title,
+      description: testSuite.description,
+      testCases: JSON.parse(JSON.stringify(testSuite.testCases)),
+      coverage: JSON.parse(JSON.stringify(testSuite.coverage)),
+      status: 'READY',
     },
   });
 

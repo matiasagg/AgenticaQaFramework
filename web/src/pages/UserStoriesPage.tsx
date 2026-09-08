@@ -656,7 +656,7 @@ export default function UserStoriesPage() {
               >
                 Cerrar
               </button>
-              {validationResult.isReady && selectedStory && (
+              {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
                 <button
                   onClick={() => {
                     handleGenerateTests(selectedStory.id)

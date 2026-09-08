@@ -84,8 +84,12 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       storyPoints: story.storyPoints || undefined,
     };
     const suite = generateTestSuite(input, story.projectId);
-    const saved = await prisma.testSuite.create({
-      data: {
+    // Usamos `upsert` porque `TestSuite.userStoryId` es único: si la HDU ya
+    // tiene una suite generada, la actualizamos en lugar de fallar con un
+    // error de constraint (que antes se traducía en un 400 "Database error").
+    const saved = await prisma.testSuite.upsert({
+      where: { userStoryId: story.id },
+      create: {
         title: suite.title,
         description: suite.description,
         testCases: JSON.parse(JSON.stringify(suite.testCases)),
@@ -93,6 +97,13 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
         status: 'READY',
         userStoryId: story.id,
         projectId: story.projectId,
+      },
+      update: {
+        title: suite.title,
+        description: suite.description,
+        testCases: JSON.parse(JSON.stringify(suite.testCases)),
+        coverage: JSON.parse(JSON.stringify(suite.coverage)),
+        status: 'READY',
       },
     });
     await prisma.userStory.update({ where: { id: story.id }, data: { status: 'IN_DEVELOPMENT' } });
