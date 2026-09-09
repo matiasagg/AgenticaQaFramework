@@ -39,7 +39,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
       if (suite.userStory) {
         const hduRef = suite.userStory.displayId || suite.userStory.id
         const expectedTitle = `${hduRef} - ${suite.userStory.title}`
-        if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+        if (suite.title !== expectedTitle) {
           return { ...suite, title: expectedTitle }
         }
       }
@@ -99,7 +99,7 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     if (suite.userStory) {
       const hduRef = suite.userStory.displayId || suite.userStory.id
       const expectedTitle = `${hduRef} - ${suite.userStory.title}`
-      if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+      if (suite.title !== expectedTitle) {
         return { ...suite, title: expectedTitle }
       }
     }

@@ -540,7 +540,7 @@ router.get('/:id/test-suite', asyncHandler(async (req: AuthenticatedRequest, res
   if (testSuite) {
     const hduRef = userStory.displayId || userStory.id
     const expectedTitle = `${hduRef} - ${userStory.title}`
-    if (testSuite.title !== expectedTitle && testSuite.title.startsWith('HDU-')) {
+    if (testSuite.title !== expectedTitle) {
       testSuite = { ...testSuite, title: expectedTitle }
     }
   }
