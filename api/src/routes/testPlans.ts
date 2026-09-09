@@ -32,6 +32,21 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
     },
     orderBy: { createdAt: 'desc' },
   });
+
+  // Generar título dinámico para suites basado en displayId actual de la HDU
+  for (const plan of testPlans) {
+    plan.testSuites = plan.testSuites.map((suite) => {
+      if (suite.userStory) {
+        const hduRef = suite.userStory.displayId || suite.userStory.id
+        const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+        if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+          return { ...suite, title: expectedTitle }
+        }
+      }
+      return suite
+    }) as any
+  }
+
   res.json({ testPlans });
 }));
 
@@ -78,6 +93,19 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     },
   });
   if (!testPlan) throw new ApiError('TestPlan no encontrado', 404);
+
+  // Generar título dinámico para suites basado en displayId actual de la HDU
+  testPlan.testSuites = testPlan.testSuites.map((suite) => {
+    if (suite.userStory) {
+      const hduRef = suite.userStory.displayId || suite.userStory.id
+      const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+      if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+        return { ...suite, title: expectedTitle }
+      }
+    }
+    return suite
+  }) as any
+
   res.json({ testPlan });
 }));
 
