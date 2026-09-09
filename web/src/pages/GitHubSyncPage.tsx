@@ -277,7 +277,7 @@ export default function GitHubSyncPage() {
                     <span className={`text-xs px-2 py-0.5 rounded ${getTargetTypeBadge(issue.targetType)}`}>
                       destino: {issue.targetType}
                     </span>
-                    {issue.mapped.acceptanceCriteria.length > 0 && (
+{issue.mapped.acceptanceCriteria?.length > 0 && (
                       <span className="text-xs text-gray-500">
                         {issue.mapped.acceptanceCriteria.length} criterios detectados
                       </span>
