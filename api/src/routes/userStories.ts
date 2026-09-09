@@ -11,7 +11,7 @@ import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { validateDoR, UserStoryInput } from '../services/dorValidator';
-import { generateTestSuite, UserStoryForGeneration } from '../services/testSuiteGenerator';
+import { generateTestSuite, generatePlaywrightSpec, UserStoryForGeneration } from '../services/testSuiteGenerator';
 import { analyzeUserStoryWithAI } from '../services/geminiAI';
 import {
   advanceStoryStatus,
@@ -519,6 +519,9 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
 /**
  * GET /api/user-stories/:id/test-suite
  * Obtiene la suite de pruebas asociada a una HDU
+ * 
+ * El título de la suite se genera dinámicamente usando el displayId
+ * actual de la HDU, para que siempre refleje el correlativo más reciente.
  */
 router.get('/:id/test-suite', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const userStory = await prisma.userStory.findFirst({
@@ -532,7 +535,40 @@ router.get('/:id/test-suite', asyncHandler(async (req: AuthenticatedRequest, res
     throw new ApiError('Historia de usuario no encontrada', 404);
   }
 
-  res.json({ testSuite: userStory.testSuite });
+  // Generar título dinámico basado en el displayId actual de la HDU
+  let testSuite = userStory.testSuite
+  if (testSuite) {
+    const hduRef = userStory.displayId || userStory.id
+    const expectedTitle = `${hduRef} - ${userStory.title}`
+    if (testSuite.title !== expectedTitle && testSuite.title.startsWith('HDU-')) {
+      testSuite = { ...testSuite, title: expectedTitle }
+    }
+  }
+
+  res.json({ testSuite });
+}));
+
+/** GET /api/user-stories/:id/playwright-spec */
+router.get('/:id/playwright-spec', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userStory = await prisma.userStory.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+  });
+
+  if (!userStory) {
+    throw new ApiError('Historia de usuario no encontrada', 404);
+  }
+
+  const spec = generatePlaywrightSpec({
+    id: userStory.id,
+    title: userStory.title,
+    description: userStory.description,
+    acceptanceCriteria: userStory.acceptanceCriteria,
+    priority: userStory.priority,
+    storyPoints: userStory.storyPoints || undefined,
+    ...(userStory.displayId ? { displayId: userStory.displayId } : {}),
+  } as UserStoryForGeneration);
+
+  res.json({ spec, filename: `${userStory.displayId || userStory.id}.spec.ts` });
 }));
 
 export default router;

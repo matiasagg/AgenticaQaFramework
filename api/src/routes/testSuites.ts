@@ -26,8 +26,24 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
   const suites = await prisma.testSuite.findMany({
     where,
     orderBy: { createdAt: 'desc' },
+    include: { userStory: true },
   });
-  res.json({ suites });
+
+  // Generar título dinámico basado en el displayId actual de la HDU
+  // para que las suites siempre reflejen el correlativo más reciente
+  const suitesWithDynamicTitle = suites.map((suite) => {
+    if (suite.userStory) {
+      const hduRef = suite.userStory.displayId || suite.userStory.id
+      const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+      // Solo actualizar si el título es diferente (conserva títulos personalizados)
+      if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+        return { ...suite, title: expectedTitle }
+      }
+    }
+    return suite
+  })
+
+  res.json({ suites: suitesWithDynamicTitle });
 }));
 
 // POST /api/test-suites - crear suite
@@ -69,9 +85,19 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
 router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const suite = await prisma.testSuite.findFirst({
     where: { id: req.params.id, project: { userId: req.user!.id } },
-    include: { testPlan: true, parentSuite: true, childSuites: true, testLinks: { include: { testCase: true } } },
+    include: { testPlan: true, parentSuite: true, childSuites: true, testLinks: { include: { testCase: true } }, userStory: true },
   });
   if (!suite) throw new ApiError('Suite no encontrada', 404);
+
+  // Generar título dinámico basado en el displayId actual de la HDU
+  if (suite.userStory) {
+    const hduRef = suite.userStory.displayId || suite.userStory.id
+    const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+    if (suite.title !== expectedTitle && suite.title.startsWith('HDU-')) {
+      ;(suite as any).title = expectedTitle
+    }
+  }
+
   res.json({ suite });
 }));
 
