@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest'
 import { generatePlaywrightSpec, generateTestSuite } from '../../services/testSuiteGenerator'
 
 describe('Playwright E2E specification generation', () => {

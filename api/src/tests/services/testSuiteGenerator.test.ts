@@ -1,20 +1,19 @@
 /**
  * Tests unitarios para el servicio Test Suite Generator.
- * Valida la generación automática de suites de pruebas a partir de HDUs.
+ * Valida la generaciรณn automรกtica de suites de pruebas a partir de HDUs.
  */
 
-import { describe, it, expect } from 'vitest';
 import { generateTestSuite, UserStoryForGeneration } from '../../services/testSuiteGenerator';
 
 describe('Test Suite Generator Service', () => {
-  /** Historia de usuario válida para generación */
+  /** Historia de usuario vรกlida para generaciรณn */
   const validUserStory: UserStoryForGeneration = {
     id: 'us-001',
     title: 'Login de usuario con 2FA',
-    description: 'Como usuario registrado, quiero iniciar sesión con 2FA para proteger mi cuenta',
+    description: 'Como usuario registrado, quiero iniciar sesiรณn con 2FA para proteger mi cuenta',
     acceptanceCriteria: [
-      'El sistema debe mostrar campo para código 2FA tras credenciales correctas',
-      'El código 2FA debe expirar en 30 segundos',
+      'El sistema debe mostrar campo para cรณdigo 2FA tras credenciales correctas',
+      'El cรณdigo 2FA debe expirar en 30 segundos',
     ],
     priority: 'HIGH',
     storyPoints: 8,
@@ -23,7 +22,7 @@ describe('Test Suite Generator Service', () => {
   const projectId = 'proj-001';
 
   describe('generateTestSuite', () => {
-    it('debe generar una suite con título y descripción', () => {
+    it('debe generar una suite con tรญtulo y descripciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       expect(suite.title).toContain(validUserStory.title);
@@ -31,10 +30,10 @@ describe('Test Suite Generator Service', () => {
       expect(suite.description).toContain(validUserStory.title);
     });
 
-    it('debe generar al menos 1 caso de prueba por criterio de aceptación', () => {
+    it('debe generar al menos 1 caso de prueba por criterio de aceptaciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
-      // 2 criterios × funcional + regresión (2) + integración (2) + exploratorio (1) + edge (2)
+      // 2 criterios ร� funcional + regresiรณn (2) + integraciรณn (2) + exploratorio (1) + edge (2)
       expect(suite.testCases.length).toBeGreaterThanOrEqual(validUserStory.acceptanceCriteria.length);
     });
 
@@ -48,7 +47,7 @@ describe('Test Suite Generator Service', () => {
       expect(suite.metadata.estimatedExecutionTime).toBeGreaterThan(0);
     });
 
-    it('debe generar casos funcionales para cada criterio de aceptación', () => {
+    it('debe generar casos funcionales para cada criterio de aceptaciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       const functionalTests = suite.testCases.filter((tc) => tc.type === 'FUNCTIONAL');
@@ -63,14 +62,14 @@ describe('Test Suite Generator Service', () => {
       }
     });
 
-    it('debe generar casos de regresión', () => {
+    it('debe generar casos de regresiรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       const regressionTests = suite.testCases.filter((tc) => tc.type === 'REGRESSION');
       expect(regressionTests.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('debe generar casos de integración', () => {
+    it('debe generar casos de integraciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       const integrationTests = suite.testCases.filter((tc) => tc.type === 'INTEGRATION');
@@ -109,7 +108,7 @@ describe('Test Suite Generator Service', () => {
       }
     });
 
-    it('cada paso debe tener orden y acción', () => {
+    it('cada paso debe tener orden y acciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       for (const tc of suite.testCases) {
@@ -120,7 +119,7 @@ describe('Test Suite Generator Service', () => {
       }
     });
 
-    it('los casos funcionales deben estar relacionados con criterios de aceptación', () => {
+    it('los casos funcionales deben estar relacionados con criterios de aceptaciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       const functionalTests = suite.testCases.filter((tc) => tc.id.startsWith('FUNC'));
@@ -130,8 +129,8 @@ describe('Test Suite Generator Service', () => {
     });
   });
 
-  describe('Análisis de cobertura', () => {
-    it('debe calcular cobertura de criterios de aceptación', () => {
+  describe('Anรกlisis de cobertura', () => {
+    it('debe calcular cobertura de criterios de aceptaciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
       expect(suite.coverage.acceptanceCriteriaCoverage).toBeGreaterThanOrEqual(0);

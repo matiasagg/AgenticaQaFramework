@@ -8,7 +8,7 @@
  * Las funciones fetchIssues/fetchBranches/fetchPullRequests se prueban
  * con mocking de fetch, configurando process.env.GITHUB_TOKEN antes.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { vi } from 'vitest'
 import type { GitHubIssue } from '../githubIntegration'
 import {
   parseRepoUrl,

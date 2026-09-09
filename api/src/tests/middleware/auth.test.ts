@@ -3,7 +3,7 @@
  * Valida la verificación JWT y autorización por roles.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { vi } from 'vitest';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config';
 import { authenticateToken, authorizeRoles, AuthenticatedRequest } from '../../middleware/auth';

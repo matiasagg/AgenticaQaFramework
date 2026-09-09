@@ -5,7 +5,7 @@
  * bloqueada) LANZA un error en lugar de devolver un fallback silencioso
  * con score 50, y que la key BYO del usuario se usa si se provee.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { vi } from 'vitest';
 import { analyzeUserStoryWithAI } from '../../services/geminiAI';
 
 // Mock del módulo de configuración para no depender del .env real

@@ -4,7 +4,6 @@
  * para diferentes escenarios de historias de usuario.
  */
 
-import { describe, it, expect } from 'vitest';
 import { validateDoR, UserStoryInput } from '../../services/dorValidator';
 
 describe('DoR Validator Service', () => {

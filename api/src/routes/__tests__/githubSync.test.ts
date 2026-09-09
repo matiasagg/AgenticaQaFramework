@@ -14,7 +14,7 @@
  * NOTA: Se usa vi.hoisted() para que las variables mock estén disponibles
  * cuando vi.mock() se ejecuta (vitest hoistea los mocks al inicio).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { vi } from 'vitest'
 import request from 'supertest'
 import express from 'express'
 
