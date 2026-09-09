@@ -51,6 +51,9 @@ export const config = {
   // configurar su propia key (BYO) que se almacena en su perfil (ver User.geminiApiKey).
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
+    // Modelo disponible en la API pública de Gemini.
+    // NOTA: verificado en vivo (HTTP 200). gemini-2.5-flash ya no está
+    // disponible para nuevas keys (la API responde 404 recomendando este modelo).
     model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
   },
   
