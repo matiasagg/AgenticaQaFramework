@@ -162,9 +162,13 @@ npx playwright test --project=chromium
 
 ## Mejores Practicas
 
-1. **Selectores**: Usa `data-testid` para selectores estables
-2. **Assertions**: Prefiere assertions web-first (`toBeVisible`, `toHaveText`)
-3. **Fixtures**: Reutiliza datos de prueba con fixtures
-4. **Paralelismo**: Ejecuta tests en paralelo para velocidad
-5. **CI**: Configura retries y workers para CI
-6. **Reportes**: Usa HTML reporter para debugging
+1. **Selectores**: Prioriza `getByRole` y `getByLabel`; usa `data-testid` como contrato explícito de testabilidad
+2. **Assertions**: Prefiere assertions web-first (`toBeVisible`, `toHaveText`, `toHaveURL`)
+3. **Sincronización**: No uses `waitForTimeout`; espera estados observables o respuestas de red relevantes
+4. **Fixtures**: Reutiliza autenticación y datos mediante fixtures, sin compartir estado mutable entre tests
+5. **Aislamiento**: Cada test prepara sus datos y puede ejecutarse solo o en paralelo
+6. **API**: Prueba contratos y reglas de negocio con `request` sin abrir navegador cuando sea suficiente
+7. **CI**: Usa retries limitados, `forbidOnly`, artefactos de diagnóstico y un proyecto estable de Chromium
+8. **Flakiness**: Investiga trazas, screenshots y logs; no ocultes fallos con retries ilimitados
+9. **Cobertura**: Incluye happy path, validaciones, autorización y el riesgo negativo más importante
+10. **Reportes**: Usa HTML reporter y conserva artefactos solo en fallos o retries

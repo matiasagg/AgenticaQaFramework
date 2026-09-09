@@ -67,6 +67,7 @@ export default function UserStoriesPage() {
   const [aiAnalysis, setAiAnalysis] = useState<any>(null)
   const [generatingTests, setGeneratingTests] = useState(false)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
+  const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -199,6 +200,24 @@ export default function UserStoriesPage() {
       alert(error?.response?.data?.error?.message || 'Error al generar pruebas')
     } finally {
       setGeneratingTests(false)
+    }
+  }
+
+  const handleGenerateE2E = async (storyId: string) => {
+    setGeneratingE2E(storyId)
+    try {
+      const response = await api.get(`/user-stories/${storyId}/playwright-spec`)
+      const blob = new Blob([response.data.spec], { type: 'text/typescript' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = response.data.filename
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al generar la prueba E2E')
+    } finally {
+      setGeneratingE2E(null)
     }
   }
 
@@ -934,6 +953,13 @@ export default function UserStoriesPage() {
                       Generar Pruebas
                     </button>
                   )}
+                  <button
+                    onClick={() => handleGenerateE2E(story.id)}
+                    className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 disabled:opacity-50"
+                    disabled={generatingE2E === story.id}
+                  >
+                    {generatingE2E === story.id ? 'Generando E2E...' : 'Descargar Playwright'}
+                  </button>
                 </div>
               </div>
             </div>

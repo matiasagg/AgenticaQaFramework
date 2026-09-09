@@ -16,6 +16,7 @@ import {
   fetchBranches,
   fetchPullRequests,
   mapIssueToUserStory,
+  mapIssueToBugReport,
   buildIssueDescription,
   hasGitHubIssueChanged,
 } from '../services/githubIntegration';
@@ -31,13 +32,27 @@ const asyncHandler = (fn: (req: any, res: Response, next: NextFunction) => Promi
 
 router.use(authenticateToken);
 
-type IssueTargetType = 'EPIC' | 'FEATURE' | 'HDU';
+type IssueTargetType = 'EPIC' | 'FEATURE' | 'HDU' | 'BUG';
 
 function detectIssueTarget(issue: { title: string; labels: Array<{ name: string }> }): IssueTargetType {
   const labels = issue.labels.map((l) => l.name.toLowerCase());
   const title = issue.title.toLowerCase();
   const hasTitlePrefix = (type: string) =>
     new RegExp(`^\\[\\s*${type}(?:\\s*[-_:]\\s*[^\\]]+|\\s*)\\]`).test(title);
+
+  // Detectar bugs primero (prioridad sobre otros tipos)
+  if (
+    labels.includes('bug') ||
+    labels.includes('bugfix') ||
+    labels.includes('error') ||
+    labels.includes('defect') ||
+    hasTitlePrefix('bug') ||
+    hasTitlePrefix('bugfix') ||
+    hasTitlePrefix('error') ||
+    hasTitlePrefix('defect')
+  ) {
+    return 'BUG';
+  }
 
   if (labels.includes('epic') || labels.includes('epica') || hasTitlePrefix('epic') || hasTitlePrefix('epica')) {
     return 'EPIC';
@@ -118,21 +133,36 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
     },
     select: { externalId: true, title: true, syncedAt: true },
   });
-  const importedExternalIds = new Set(existingStories.map((s) => s.externalId).filter(Boolean));
+  const existingBugs: Array<{ githubId: string | null; title: string; updatedAt: Date | null }> = await prisma.bugReport.findMany({
+    where: {
+      projectId: project.id,
+      githubId: { not: null },
+    },
+    select: { githubId: true, title: true, updatedAt: true },
+  });
+  const importedExternalIds = new Set([
+    ...existingStories.map((s) => s.externalId).filter(Boolean),
+    ...existingBugs.map((b) => b.githubId).filter(Boolean),
+  ]);
 
-  const preview = issues.map((issue) => ({
-    number: issue.number,
-    title: issue.title,
-    url: issue.html_url,
-    labels: issue.labels.map((l) => l.name),
-    targetType: detectIssueTarget(issue),
-    alreadyImported: importedExternalIds.has(String(issue.number)),
-    needsSync: (() => {
-      const story = existingStories.find((item) => item.externalId === String(issue.number));
-      return story ? hasGitHubIssueChanged(issue, story.syncedAt) : false;
-    })(),
-    mapped: mapIssueToUserStory(issue),
-  }));
+  const preview = issues.map((issue) => {
+    const targetType = detectIssueTarget(issue);
+    const story = existingStories.find((item) => item.externalId === String(issue.number));
+    const bug = existingBugs.find((item) => item.githubId === String(issue.number));
+    const existing = story || bug;
+    const syncedAt = story?.syncedAt || bug?.updatedAt;
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      url: issue.html_url,
+      labels: issue.labels.map((l) => l.name),
+      targetType,
+      alreadyImported: importedExternalIds.has(String(issue.number)),
+      needsSync: existing ? hasGitHubIssueChanged(issue, syncedAt) : false,
+      mapped: targetType === 'BUG' ? mapIssueToBugReport(issue) : mapIssueToUserStory(issue),
+    };
+  });
 
   res.json({ issues: preview, repository: project.repository });
 }));
@@ -164,35 +194,70 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
       externalId: { in: issueNumbers.map(String) },
     },
   });
+  const bugs: Array<{ id: string; githubId: string | null; updatedAt: Date | null }> = await prisma.bugReport.findMany({
+    where: {
+      projectId: project.id,
+      githubId: { in: issueNumbers.map(String) },
+    },
+  });
 
-  const synced: Array<{ id: string; issueNumber: number }> = [];
+  const synced: Array<{ id: string; issueNumber: number; type: 'HDU' | 'BUG' }> = [];
   const skipped: number[] = [];
   for (const issue of issues.filter((item) => issueNumbers.includes(item.number))) {
-    const story = stories.find((item) => item.externalId === String(issue.number));
-    if (!story || !hasGitHubIssueChanged(issue, story.syncedAt)) {
-      skipped.push(issue.number);
-      continue;
-    }
+    const targetType = detectIssueTarget(issue);
 
-    const mapped = mapIssueToUserStory(issue);
-    await prisma.userStory.update({
-      where: { id: story.id },
-      data: {
-        title: mapped.title,
-        description: buildIssueDescription(mapped.description, mapped.githubUrl),
-        acceptanceCriteria: mapped.acceptanceCriteria,
-        priority: mapped.priority as any,
-        syncStatus: 'SYNCED',
-        syncMetadata: {
-          issueNumber: issue.number,
-          source: 'github',
-          sourceUpdatedAt: issue.updated_at,
-          syncedAt: new Date().toISOString(),
+    if (targetType === 'BUG') {
+      // Sincronizar bug
+      const bug = bugs.find((item) => item.githubId === String(issue.number));
+      if (!bug || !hasGitHubIssueChanged(issue, bug.updatedAt)) {
+        skipped.push(issue.number);
+        continue;
+      }
+
+      const bugMapped = mapIssueToBugReport(issue);
+      const bugDescriptionWithRef = buildIssueDescription(bugMapped.description, bugMapped.githubUrl);
+      const normalizedTitle = normalizeIssueTitle(bugMapped.title);
+
+      await prisma.bugReport.update({
+        where: { id: bug.id },
+        data: {
+          title: normalizedTitle,
+          description: bugDescriptionWithRef,
+          severity: bugMapped.severity as any,
+          stepsToReproduce: bugMapped.stepsToReproduce,
+          expectedResult: bugMapped.expectedResult,
+          actualResult: bugMapped.actualResult,
         },
-        syncedAt: new Date(),
-      },
-    });
-    synced.push({ id: story.id, issueNumber: issue.number });
+      });
+      synced.push({ id: bug.id, issueNumber: issue.number, type: 'BUG' });
+    } else {
+      // Sincronizar HDU
+      const story = stories.find((item) => item.externalId === String(issue.number));
+      if (!story || !hasGitHubIssueChanged(issue, story.syncedAt)) {
+        skipped.push(issue.number);
+        continue;
+      }
+
+      const mapped = mapIssueToUserStory(issue);
+      await prisma.userStory.update({
+        where: { id: story.id },
+        data: {
+          title: mapped.title,
+          description: buildIssueDescription(mapped.description, mapped.githubUrl),
+          acceptanceCriteria: mapped.acceptanceCriteria,
+          priority: mapped.priority as any,
+          syncStatus: 'SYNCED',
+          syncMetadata: {
+            issueNumber: issue.number,
+            source: 'github',
+            sourceUpdatedAt: issue.updated_at,
+            syncedAt: new Date().toISOString(),
+          },
+          syncedAt: new Date(),
+        },
+      });
+      synced.push({ id: story.id, issueNumber: issue.number, type: 'HDU' });
+    }
   }
 
   res.json({ synced, skipped, summary: { total: issueNumbers.length, synced: synced.length, skipped: skipped.length } });
@@ -245,6 +310,9 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
   for (const issue of toImport) {
     try {
       const externalId = String(issue.number);
+      const targetType = detectIssueTarget(issue);
+
+      // Verificar si ya existe (como HDU o como Bug)
       const existingStory = await prisma.userStory.findFirst({
         where: {
           projectId: project.id,
@@ -257,10 +325,20 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
         continue;
       }
 
+      const existingBug = await prisma.bugReport.findFirst({
+        where: {
+          projectId: project.id,
+          githubId: externalId,
+        },
+      });
+      if (existingBug) {
+        skipped.push({ issueNumber: issue.number, reason: 'Ya existe un Bug sincronizado para este issue' });
+        continue;
+      }
+
       const mapped = mapIssueToUserStory(issue);
       const descriptionWithRef = buildIssueDescription(mapped.description, mapped.githubUrl);
       const normalizedTitle = normalizeIssueTitle(mapped.title);
-      const targetType = detectIssueTarget(issue);
 
       if (targetType === 'EPIC') {
         const existingEpic = await prisma.epic.findFirst({
@@ -301,6 +379,31 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
         continue;
       }
 
+      if (targetType === 'BUG') {
+        // Importar como BugReport
+        const bugMapped = mapIssueToBugReport(issue);
+        const bugDescriptionWithRef = buildIssueDescription(bugMapped.description, bugMapped.githubUrl);
+
+        const bug = await prisma.bugReport.create({
+          data: {
+            title: normalizedTitle,
+            description: bugDescriptionWithRef,
+            severity: bugMapped.severity as any,
+            stepsToReproduce: bugMapped.stepsToReproduce,
+            expectedResult: bugMapped.expectedResult,
+            actualResult: bugMapped.actualResult,
+            projectId: project.id,
+            userId: req.user!.id,
+            githubId: externalId,
+            status: 'OPEN',
+          },
+        });
+
+        imported.push({ id: bug.id, title: bug.title, issueNumber: issue.number, targetType });
+        continue;
+      }
+
+      // targetType === 'HDU'
       const resolvedFeature = featureId
         ? await prisma.feature.findFirst({ where: { id: featureId }, select: { id: true, epicId: true } })
         : await ensureDefaultFeature(project.id, epicId || null);

@@ -257,6 +257,84 @@ function mapPriority(labels: string[]): string {
 }
 
 /**
+ * Mapea labels de GitHub a severidad del sistema.
+ * Labels reconocidos: critical, high, medium, low, p0, p1, p2, alta, baja.
+ */
+export function mapSeverity(labels: string[]): string {
+  const lowerLabels = labels.map((l) => l.toLowerCase());
+  if (lowerLabels.includes('critical') || lowerLabels.includes('p0') || lowerLabels.includes('alta')) {
+    return 'CRITICAL';
+  }
+  if (lowerLabels.includes('high') || lowerLabels.includes('p1')) {
+    return 'HIGH';
+  }
+  if (lowerLabels.includes('low') || lowerLabels.includes('p2') || lowerLabels.includes('baja')) {
+    return 'LOW';
+  }
+  return 'MEDIUM';
+}
+
+/**
+ * Extrae pasos para reproducir del cuerpo del issue.
+ * Busca secciones: "Pasos para reproducir", "Steps to reproduce", "Reproduction steps".
+ */
+function extractStepsToReproduce(body: string): string[] {
+  if (!body) return [];
+
+  const sectionRegex = /(?:pasos?\s+para\s+reproducir|steps?\s+to\s+reproduce|reproduction\s+steps?)[:\s]*\n?((?:\s*[-*]\s*.+\n?)*)/i;
+  const sectionMatch = body.match(sectionRegex);
+
+  if (sectionMatch?.[1]) {
+    const steps = sectionMatch[1]
+      .split('\n')
+      .map((line) => line.replace(/^[\s*+-]+/, '').trim())
+      .filter((line) => line.length > 0);
+    if (steps.length > 0) return steps.slice(0, 10);
+  }
+
+  return [];
+}
+
+/**
+ * Importa issues de GitHub como BugReports.
+ * Función pura de mapeo: convierte un issue de GitHub a datos de BugReport.
+ *
+ * @param issue - Issue de GitHub
+ * @returns Datos listos para crear un BugReport
+ */
+export function mapIssueToBugReport(issue: GitHubIssue): {
+  title: string;
+  description: string;
+  severity: string;
+  stepsToReproduce: string[];
+  expectedResult: string;
+  actualResult: string;
+  githubIssueNumber: number;
+  githubUrl: string;
+} {
+  const body = issue.body || '';
+  const stepsToReproduce = extractStepsToReproduce(body);
+
+  // Mapear labels de severidad
+  const severity = mapSeverity(issue.labels.map((l) => l.name));
+
+  // Extraer resultado esperado/real del cuerpo si existe
+  const expectedMatch = body.match(/(?:resultado\s+esperado|expected\s+result)[:\s]*\n?([^\n]+)/i);
+  const actualMatch = body.match(/(?:resultado\s+real|actual\s+result)[:\s]*\n?([^\n]+)/i);
+
+  return {
+    title: issue.title,
+    description: body || issue.title,
+    severity,
+    stepsToReproduce,
+    expectedResult: expectedMatch?.[1]?.trim() || '',
+    actualResult: actualMatch?.[1]?.trim() || '',
+    githubIssueNumber: issue.number,
+    githubUrl: issue.html_url,
+  };
+}
+
+/**
  * Obtiene las ramas de un repositorio.
  *
  * @param repoUrl - URL del repositorio
