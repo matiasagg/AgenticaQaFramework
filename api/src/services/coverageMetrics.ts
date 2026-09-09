@@ -191,7 +191,8 @@ export function calculateCoverageMetrics(
     .filter((hdu) => !hdu.testSuite || hdu.testSuite.testLinks.length === 0)
     .map((hdu) => ({
       id: hdu.id,
-      displayId: hdu.displayId,
+      // Coalesce a null: el tipo de salida exige `string | null`, no `undefined`
+      displayId: hdu.displayId ?? null,
       title: hdu.title,
       status: hdu.status,
       epicName: hdu.epic?.name || 'Sin épica',
