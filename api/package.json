@@ -10,7 +10,8 @@
 "test": "vitest run --config vitest.config.ts --root ./",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "repair:hdu-ids": "ts-node scripts/migrate-hdu-ids.ts"
   },
   "keywords": [
     "qa",
