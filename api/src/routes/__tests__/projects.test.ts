@@ -4,7 +4,7 @@
  * Verifica el update de proyectos, especialmente el manejo del PAT de GitHub
  * para no borrar el token actual si el usuario deja el campo en blanco.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { vi } from 'vitest'
 import request from 'supertest'
 import express from 'express'
 

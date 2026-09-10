@@ -46,6 +46,29 @@ api.interceptors.response.use(
 )
 
 // Auth services
+/**
+ * API para gestionar la key BYO (Bring Your Own) de Gemini del usuario.
+ * La key se guarda encriptada en el backend y se usa para el análisis
+ * DoR con IA, independiente de la key global del servidor.
+ */
+export const geminiKeyApi = {
+  /** Consulta si el usuario ya tiene key configurada (sin exponerla) */
+  getStatus: async (): Promise<{ configured: boolean }> => {
+    const response = await api.get('/users/me/gemini-key')
+    return response.data
+  },
+  /** Guarda la key del usuario (el backend la encripta) */
+  save: async (geminiApiKey: string): Promise<{ configured: boolean; message: string }> => {
+    const response = await api.put('/users/me/gemini-key', { geminiApiKey })
+    return response.data
+  },
+  /** Elimina la key del usuario */
+  remove: async (): Promise<{ configured: boolean; message: string }> => {
+    const response = await api.delete('/users/me/gemini-key')
+    return response.data
+  },
+}
+
 export const authApi = {
   login: async (email: string, password: string): Promise<AuthResponse> => {
     const response = await api.post<AuthResponse>('/auth/login', { email, password })

@@ -294,11 +294,31 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   // Ejecutar validación DoR estática
   const validationResult = validateDoR(input);
 
-  // Ejecutar validación con IA (Gemini)
-  let aiAnalysis = null;
+  // Obtener la key BYO (Bring Your Own) del usuario para el análisis IA.
+  // Si el usuario configuró su propia key de Gemini, se usa esta; si no, se
+  // usa la global de la aplicación (ver resolveApiKey en geminiAI.ts).
+  let userGeminiKey: string | null = null;
   try {
-    aiAnalysis = await analyzeUserStoryWithAI(input);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { geminiApiKey: true },
+    });
+    userGeminiKey = user?.geminiApiKey ?? null;
+  } catch (err) {
+    console.error('Error obteniendo key BYO del usuario:', err);
+  }
+
+  // Ejecutar validación con IA (Gemini).
+  // IMPORTANTE: analyzeUserStoryWithAI ahora LANZA error si Gemini falla (key
+  // inválida, cuota, modelo no disponible, parseo). NO se devuelve un fallback
+  // silencioso con score 50: el error se expone en `aiError` y no se persiste
+  // en caché, de modo que la siguiente validación vuelva a intentar la IA.
+  let aiAnalysis = null;
+  let aiError: string | null = null;
+  try {
+    aiAnalysis = await analyzeUserStoryWithAI(input, userGeminiKey);
   } catch (error) {
+    aiError = error instanceof Error ? error.message : String(error);
     console.error('Error en análisis IA:', error);
   }
 
@@ -324,6 +344,10 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   // Actualizar la HDU con los resultados combinados
   // Guardamos TODO el resultado (checklist, summary, recomendaciones y análisis IA)
   // en staticAnalysis para poder servirlo desde caché en las siguientes llamadas.
+  // IMPORTANTE: SOLO se persiste aiAnalysis cuando la IA respondió realmente. Si
+  // la IA falló (aiError != null), NO se guarda el fallback, de modo que la
+  // siguiente validación vuelva a intentar conectarse a Gemini (la caché queda
+  // sin aiAnalysis y el GET vuelve a re-ejecutar el análisis).
   const validatedAt = new Date().toISOString();
   const updatedStory = await prisma.userStory.update({
     where: { id: req.params.id },
@@ -337,13 +361,14 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         summary: validationResult.summary,
         checklist: validationResult.checklist,
         recommendations: allRecommendations,
-        aiAnalysis: aiAnalysis ? {
+        aiAnalysis: aiAnalysis && !aiError ? {
           score: aiAnalysis.score,
           suggestions: aiAnalysis.suggestions,
           missingElements: aiAnalysis.missingElements,
           riskAreas: aiAnalysis.riskAreas,
           improvedDescription: aiAnalysis.improvedDescription,
         } : null,
+        aiError,
       })),
       qualityScore: finalScore,
       status: isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
@@ -368,6 +393,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       aiRecommendation: workflowRecommendation,
     },
     aiAnalysis,
+    aiError,
   });
 }));
 /**

@@ -7,7 +7,6 @@
  * bloqueados, recomendaciones y riesgos.
  */
 
-import { describe, it, expect } from 'vitest';
 import {
   calculateCoverageMetrics,
   UserStoryInput,

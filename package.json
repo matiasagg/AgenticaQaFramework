@@ -50,8 +50,10 @@
   "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@rollup/rollup-win32-x64-msvc": "^4.63.1",
     "@types/supertest": "^7.2.1",
     "concurrently": "^8.2.2",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "vitest": "^1.0.4"
   }
 }
