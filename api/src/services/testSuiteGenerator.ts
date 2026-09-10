@@ -23,6 +23,10 @@ export interface GeneratedTestCase {
   type: 'FUNCTIONAL' | 'REGRESSION' | 'E2E' | 'INTEGRATION' | 'EXPLORATORY';
   automationStatus: 'MANUAL' | 'AUTOMATED' | 'IN_PROGRESS';
   relatedAcceptanceCriteria: string[];
+  automation?: {
+    framework: 'playwright';
+    spec: string;
+  };
 }
 
 export interface TestStep {
@@ -122,6 +126,31 @@ export function generateTestSuite(
       estimatedExecutionTime: estimatedTime,
     },
   };
+}
+
+/** Genera una especificación Playwright ejecutable para una HDU. */
+export function generatePlaywrightSpec(userStory: UserStoryForGeneration): string {
+  const hduRef = (userStory as any).displayId || userStory.id;
+  const criteria = userStory.acceptanceCriteria.length > 0
+    ? userStory.acceptanceCriteria
+    : ['La funcionalidad cumple el comportamiento esperado'];
+
+  const tests = criteria.map((criterion, index) => {
+    const escapedCriterion = criterion.replace(/`/g, '\\`');
+    return `  test(${JSON.stringify(`${hduRef} - criterio ${index + 1}`)}, async ({ page }) => {
+    await page.goto(process.env.PLAYWRIGHT_BASE_URL ?? '/');
+    // TODO: Reemplazar este marcador por los selectores del flujo de negocio.
+    await expect(page).toHaveTitle(/.*/);
+    // Criterio: ${escapedCriterion}
+  });`;
+  }).join('\n\n');
+
+  return `import { test, expect } from '@playwright/test';
+
+test.describe(${JSON.stringify(`${hduRef} - ${userStory.title}`)}, () => {
+${tests}
+});
+`;
 }
 
 /**
@@ -433,4 +462,5 @@ function mapPriority(priority: string): 'HIGH' | 'MEDIUM' | 'LOW' {
 
 export default {
   generateTestSuite,
+  generatePlaywrightSpec,
 };

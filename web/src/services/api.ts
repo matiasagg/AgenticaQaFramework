@@ -245,6 +245,23 @@ export const coverageApi = {
     const response = await api.post('/coverage', { projectId })
     return response.data
   },
+
+  /**
+   * Obtiene métricas de cobertura en tiempo real desde la base de datos.
+   * Retorna los 5 tipos de cobertura, desglose por épica/feature y recomendaciones.
+   */
+  getMetrics: async (projectId: string) => {
+    const response = await api.get(`/coverage/metrics/${projectId}`)
+    return response.data
+  },
+
+  /**
+   * Obtiene la tendencia histórica de cobertura (últimos 30 días).
+   */
+  getTrend: async (projectId: string) => {
+    const response = await api.get(`/coverage/trend/${projectId}`)
+    return response.data
+  },
 }
 
 // GitHub Sync services
