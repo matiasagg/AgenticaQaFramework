@@ -458,14 +458,13 @@ router.post('/:id/generate-tests', asyncHandler(async (req: AuthenticatedRequest
   // Preparar input para generación de pruebas
   const input: UserStoryForGeneration = {
     id: userStory.id,
+    displayId: userStory.displayId,
     title: userStory.title,
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
     storyPoints: userStory.storyPoints || undefined,
-  } as any;
-  // Pasar displayId para que el generador lo use en el título
-  (input as any).displayId = userStory.displayId;
+  };
 
   // Generar suite de pruebas
   const testSuite = generateTestSuite(input, userStory.projectId);

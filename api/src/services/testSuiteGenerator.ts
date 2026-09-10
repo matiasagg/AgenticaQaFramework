@@ -63,6 +63,8 @@ export interface TestSuite {
 
 export interface UserStoryForGeneration {
   id: string;
+  /** Identificador público correlativo de la HDU (por ejemplo, HDU-001). */
+  displayId?: string | null;
   title: string;
   description: string;
   acceptanceCriteria: string[];
@@ -110,8 +112,9 @@ export function generateTestSuite(
     return total + (tc.steps.length * 2); // 2 minutos por paso estimado
   }, 0);
 
-  // Usar displayId si está disponible, sino usar el ID interno
-  const hduRef = (userStory as any).displayId || userStory.id
+  // Usar siempre el identificador público cuando exista. El ID interno es un
+  // fallback técnico y no debe mostrarse como referencia funcional.
+  const hduRef = userStory.displayId || userStory.id
   return {
     title: `${hduRef} - ${userStory.title}`,
     description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}" (${hduRef}). ` +
@@ -130,7 +133,7 @@ export function generateTestSuite(
 
 /** Genera una especificación Playwright ejecutable para una HDU. */
 export function generatePlaywrightSpec(userStory: UserStoryForGeneration): string {
-  const hduRef = (userStory as any).displayId || userStory.id;
+  const hduRef = userStory.displayId || userStory.id;
   const criteria = userStory.acceptanceCriteria.length > 0
     ? userStory.acceptanceCriteria
     : ['La funcionalidad cumple el comportamiento esperado'];

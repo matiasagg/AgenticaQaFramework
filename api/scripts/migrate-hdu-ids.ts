@@ -1,6 +1,7 @@
 /**
- * Script de migración: asigna displayId correlativo (HDU-001, HDU-002, etc.)
- * a las User Stories existentes que no lo tienen.
+ * Repara los identificadores públicos de las HDU y los títulos de suites
+ * existentes. Es idempotente: puede ejecutarse más de una vez sin crear
+ * correlativos duplicados.
  */
 import { PrismaClient } from '@prisma/client'
 
@@ -8,26 +9,39 @@ const prisma = new PrismaClient()
 
 async function migrate() {
   const stories = await prisma.userStory.findMany({
-    where: { displayId: null },
-    orderBy: { createdAt: 'asc' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, title: true },
   })
 
-  console.log(`Encontradas ${stories.length} HDUs sin displayId`)
+  console.log(`Reparando ${stories.length} HDUs y sus suites asociadas`)
 
-  for (let i = 0; i < stories.length; i++) {
-    const story = stories[i]
-    const hduNumber = i + 1
-    const displayId = `HDU-${String(hduNumber).padStart(3, '0')}`
-
-    await prisma.userStory.update({
-      where: { id: story.id },
-      data: { hduNumber, displayId },
+  await prisma.$transaction(async (tx) => {
+    // Liberar primero las restricciones únicas para permitir corregir datos
+    // existentes aunque dos HDU tengan actualmente números intercambiados.
+    await tx.userStory.updateMany({
+      data: { hduNumber: null, displayId: null },
     })
 
-    console.log(`  ${displayId} -> ${story.title.substring(0, 50)}`)
-  }
+    for (let i = 0; i < stories.length; i++) {
+      const story = stories[i]
+      const hduNumber = i + 1
+      const displayId = `HDU-${String(hduNumber).padStart(3, '0')}`
 
-  console.log('\nMigración completada!')
+      await tx.userStory.update({
+        where: { id: story.id },
+        data: { hduNumber, displayId },
+      })
+
+      await tx.testSuite.updateMany({
+        where: { userStoryId: story.id },
+        data: { title: `${displayId} - ${story.title}` },
+      })
+
+      console.log(`  ${displayId} -> ${story.title.substring(0, 50)}`)
+    }
+  })
+
+  console.log('\nMigración completada: HDU y suites actualizadas!')
 }
 
 migrate()

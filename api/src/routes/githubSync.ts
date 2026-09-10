@@ -412,6 +412,15 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
         throw new ApiError('No se pudo resolver una Feature válida para importar la HDU', 400);
       }
 
+      // Las HDU importadas también deben tener el identificador público
+      // correlativo. Si no se asigna aquí, la suite generada posteriormente
+      // termina mostrando el cuid interno de la HDU como referencia.
+      const lastHdu = await prisma.userStory.findFirst({
+        orderBy: { hduNumber: 'desc' },
+        select: { hduNumber: true },
+      });
+      const hduNumber = (lastHdu?.hduNumber || 0) + 1;
+
       const userStory = await prisma.userStory.create({
         data: {
           title: normalizedTitle,
@@ -422,6 +431,8 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
           userId: req.user!.id,
           epicId: resolvedFeature.epicId,
           featureId: resolvedFeature.id,
+          hduNumber,
+          displayId: `HDU-${String(hduNumber).padStart(3, '0')}`,
           status: 'NEW',
           externalSystem: 'GITHUB',
           externalId,

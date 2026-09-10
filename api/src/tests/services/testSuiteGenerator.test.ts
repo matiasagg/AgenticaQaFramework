@@ -9,6 +9,7 @@ describe('Test Suite Generator Service', () => {
   /** Historia de usuario vรกlida para generaciรณn */
   const validUserStory: UserStoryForGeneration = {
     id: 'us-001',
+    displayId: 'HDU-001',
     title: 'Login de usuario con 2FA',
     description: 'Como usuario registrado, quiero iniciar sesiรณn con 2FA para proteger mi cuenta',
     acceptanceCriteria: [
@@ -25,6 +26,8 @@ describe('Test Suite Generator Service', () => {
     it('debe generar una suite con tรญtulo y descripciรณn', () => {
       const suite = generateTestSuite(validUserStory, projectId);
 
+      expect(suite.title).toContain('HDU-001');
+      expect(suite.title).not.toContain(validUserStory.id);
       expect(suite.title).toContain(validUserStory.title);
       expect(suite.description).toContain('Suite de pruebas');
       expect(suite.description).toContain(validUserStory.title);
