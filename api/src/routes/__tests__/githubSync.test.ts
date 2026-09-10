@@ -34,11 +34,17 @@ const mocks = vi.hoisted(() => {
       findFirst: vi.fn(),
       update: vi.fn(),
     },
+    bugReport: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+    },
     epic: {
       findFirst: vi.fn(),
+      create: vi.fn(),
     },
     feature: {
       findFirst: vi.fn(),
+      create: vi.fn(),
     },
     testSuite: {
       update: vi.fn(),
@@ -150,6 +156,12 @@ describe('GitHub Sync Routes', () => {
     mocks.mockPrisma.project.findFirst.mockResolvedValue(mockProject)
     mocks.mockPrisma.userStory.findMany.mockResolvedValue([])
     mocks.mockPrisma.userStory.findFirst.mockResolvedValue(null)
+    mocks.mockPrisma.bugReport.findMany.mockResolvedValue([])
+    mocks.mockPrisma.bugReport.findFirst.mockResolvedValue(null)
+    mocks.mockPrisma.epic.findFirst.mockResolvedValue(null)
+    mocks.mockPrisma.epic.create.mockResolvedValue({ id: 'epic-default' })
+    mocks.mockPrisma.feature.findFirst.mockResolvedValue(null)
+    mocks.mockPrisma.feature.create.mockResolvedValue({ id: 'feature-default', epicId: 'epic-default' })
   })
 
   describe('GET /api/github-sync/:projectId/issues', () => {
@@ -218,10 +230,11 @@ describe('GitHub Sync Routes', () => {
      * retornando un resumen de cuántos tuvieron éxito y cuántos fallaron.
      */
     it('should import selected issues as user stories', async () => {
-      mocks.mockFetchIssues.mockResolvedValue([mockIssue])
+      mocks.mockFetchIssues.mockResolvedValue([{ ...mockIssue, title: 'Login user story', labels: [] }])
+      mocks.mockMapIssueToUserStory.mockReturnValue({ ...mockMapped, title: 'Login user story', priority: 'MEDIUM' })
       mocks.mockPrisma.userStory.create.mockResolvedValue({
         id: 'us-new-1',
-        title: mockMapped.title,
+        title: 'Login user story',
       })
 
       const app = createApp()
@@ -234,9 +247,17 @@ describe('GitHub Sync Routes', () => {
         total: 1,
         success: 1,
         failed: 0,
+        skipped: 0,
+        byType: { HDU: 1 },
       })
       expect(res.body.imported).toHaveLength(1)
       expect(res.body.imported[0].issueNumber).toBe(42)
+      expect(mocks.mockPrisma.userStory.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          hduNumber: 1,
+          displayId: 'HDU-001',
+        }),
+      }))
     })
 
     it('should skip import when the GitHub issue was already mapped to a HDU by external id', async () => {

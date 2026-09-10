@@ -77,6 +77,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     if (!story.isReady) throw new ApiError('La HDU debe cumplir DoR antes de generar tests', 422);
     const input = {
       id: story.id,
+      displayId: story.displayId,
       title: story.title,
       description: story.description,
       acceptanceCriteria: story.acceptanceCriteria,
