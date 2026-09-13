@@ -31,21 +31,45 @@ interface UserStory {
   epic?: { id: string; name: string } | null
   feature?: { id: string; name: string } | null
   createdAt: string
+  externalSystem?: string | null
+  externalId?: string | null
+  externalUrl?: string | null
+  syncStatus?: string | null
+  syncedAt?: string | null
+}
+
+interface DorCheckItem {
+  id: string
+  name: string
+  description: string
+  passed: boolean
+  weight: number
+  suggestion?: string
+  evaluatedValue?: string | string[]
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
+}
+
+interface DorRecommendation {
+  checkId: string
+  checkName: string
+  message: string
+  source: 'rules' | 'ai'
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
 }
 
 interface DorValidation {
   score: number
   isReady: boolean
-  checklist: Array<{
-    id: string
-    name: string
-    description: string
-    passed: boolean
-    weight: number
-    suggestion?: string
-  }>
+  checklist: DorCheckItem[]
   summary: string
   recommendations: string[]
+  recommendationsDetailed: DorRecommendation[]
   // Indica si el resultado viene de la caché del backend (análisis guardado)
   // o fue recién generado (con IA). validatedAt: fecha del análisis original.
   cached?: boolean
@@ -68,6 +92,8 @@ export default function UserStoriesPage() {
   const [generatingTests, setGeneratingTests] = useState(false)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [pushingHdu, setPushingHdu] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -276,6 +302,57 @@ export default function UserStoriesPage() {
       ...prev,
       acceptanceCriteria: prev.acceptanceCriteria.filter((_, i) => i !== index),
     }))
+  }
+
+  /**
+   * Formatea el valor evaluado para mostrarlo en el reporte.
+   * Convierte arrays en listas legibles y maneja undefined.
+   */
+  const formatEvaluatedValue = (value: string | string[] | undefined): string => {
+    if (value === undefined || value === null) return '—'
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '—'
+      return value.join(', ')
+    }
+    return value.length > 100 ? `${value.substring(0, 100)}...` : value
+  }
+
+  /**
+   * Aplica un parche DoR específico a la HDU (HDU-012).
+   * Llama al endpoint /apply-dor-fixes y recarga la validación.
+   */
+  const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
+    setApplyingFix(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
+        fixes: [fix]
+      })
+      // Recargar la validación para reflejar los cambios
+      await handleValidateDor(storyId, true)
+      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+    } finally {
+      setApplyingFix(null)
+    }
+  }
+
+  /**
+   * Sincroniza los cambios de la HDU con GitHub (HDU-012).
+   * Llama al endpoint /push-hdu para actualizar el issue.
+   */
+  const handlePushHdu = async (storyId: string) => {
+    setPushingHdu(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/push-hdu`, {})
+      const { github, syncedFields } = response.data
+      alert(`✅ HDU sincronizada con GitHub.\n\nIssue #${github.issueNumber}: ${github.issueUrl}\n\nCampos sincronizados: ${syncedFields.join(', ')}`)
+      fetchUserStories()
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al sincronizar con GitHub')
+    } finally {
+      setPushingHdu(null)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -582,22 +659,89 @@ export default function UserStoriesPage() {
               </p>
             </div>
 
-            {/* Checklist */}
+            {/* Checklist punto a punto (HDU-012) */}
             <div className="space-y-2 mb-4">
+              <h3 className="font-medium text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                📋 Evaluación por punto
+                <span className="text-xs text-gray-500 dark:text-gray-400">(HDU-012)</span>
+              </h3>
               {validationResult.checklist.map((item) => (
-                <div key={item.id} className={`p-3 rounded-lg ${item.passed ? 'bg-green-50 dark:bg-green-900' : 'bg-red-50 dark:bg-red-900'}`}>
+                <div key={item.id} className={`p-3 rounded-lg border ${item.passed ? 'bg-green-50 dark:bg-green-900 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900 border-red-200 dark:border-red-800'}`}>
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{item.name}</span>
-                    <span>{item.passed ? '✓' : '✗'}</span>
+                    <div className="flex items-center gap-2">
+                      {/* Botón Aplicar mejora (solo si hay fix y no pasó) */}
+                      {!item.passed && item.suggestedFix && selectedStory && (
+                        <button
+                          onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
+                          disabled={applyingFix === selectedStory.id}
+                          className="px-2 py-1 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 dark:hover:bg-orange-800 disabled:opacity-50"
+                          title={`Aplicar: ${item.suggestedFix.field} = ${Array.isArray(item.suggestedFix.value) ? item.suggestedFix.value.join(', ') : item.suggestedFix.value}`}
+                        >
+                          {applyingFix === selectedStory.id ? '⏳' : '✨ Aplicar'}
+                        </button>
+                      )}
+                      <span>{item.passed ? '✓' : '✗'}</span>
+                    </div>
                   </div>
+                  {/* Valor evaluado (HDU-012) */}
+                  {item.evaluatedValue !== undefined && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <span className="font-medium">Valor evaluado:</span>{' '}
+                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">
+                        {formatEvaluatedValue(item.evaluatedValue)}
+                      </code>
+                    </p>
+                  )}
                   {!item.passed && item.suggestion && (
                     <p className="text-sm text-red-600 dark:text-red-400 mt-1">
                       💡 {item.suggestion}
                     </p>
                   )}
+                  {/* Fix sugerido (preview) */}
+                  {!item.passed && item.suggestedFix && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                      🔧 Fix sugerido: <code className="bg-orange-50 dark:bg-orange-900/30 px-1 rounded">{item.suggestedFix.field}</code> → <code className="bg-orange-50 dark:bg-orange-900/30 px-1 rounded">{Array.isArray(item.suggestedFix.value) ? `[${item.suggestedFix.value.length} items]` : String(item.suggestedFix.value)}</code>
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
+
+            {/* Recomendaciones detalladas vinculadas a cada punto (HDU-012) */}
+            {validationResult.recommendationsDetailed && validationResult.recommendationsDetailed.length > 0 && (
+              <div className="bg-indigo-50 dark:bg-indigo-900 p-4 rounded-lg mb-4">
+                <h3 className="font-medium text-indigo-800 dark:text-indigo-200 mb-2 flex items-center gap-2">
+                  🎯 Mejoras vinculadas a puntos específicos
+                  <span className="text-xs bg-indigo-200 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+                    {validationResult.recommendationsDetailed.length}
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {validationResult.recommendationsDetailed.map((rec, i) => (
+                    <div key={i} className="flex items-start gap-2 p-2 bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700">
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${rec.source === 'ai' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'}`}>
+                        {rec.source === 'ai' ? '🤖 IA' : '📏 Regla'}
+                      </span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                          <span className="text-indigo-600 dark:text-indigo-400">[{rec.checkName || rec.checkId}]</span> {rec.message}
+                        </p>
+                      </div>
+                      {rec.suggestedFix && selectedStory && (
+                        <button
+                          onClick={() => handleApplyFix(selectedStory.id, rec.suggestedFix!)}
+                          disabled={applyingFix === selectedStory.id}
+                          className="px-2 py-1 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 dark:hover:bg-orange-800 disabled:opacity-50 shrink-0"
+                        >
+                          ✨ Aplicar
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Recommendations */}
             {validationResult.recommendations.length > 0 && (
@@ -960,6 +1104,17 @@ export default function UserStoriesPage() {
                   >
                     {generatingE2E === story.id ? 'Generando E2E...' : 'Descargar Playwright'}
                   </button>
+                  {/* Botón Push a GitHub (solo para HDUs importadas de GitHub) */}
+                  {story.externalSystem === 'GITHUB' && (
+                    <button
+                      onClick={() => handlePushHdu(story.id)}
+                      className="px-3 py-1 text-sm bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={pushingHdu === story.id}
+                      title="Sincronizar cambios con el issue de GitHub"
+                    >
+                      {pushingHdu === story.id ? '⏳' : '⬆️ Push a GitHub'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
