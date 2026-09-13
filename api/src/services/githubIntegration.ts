@@ -391,6 +391,148 @@ export async function fetchPullRequests(
   }));
 }
 
+/**
+ * Actualiza un issue de GitHub (HDU-012).
+ *
+ * Permite sincronizar los cambios de la HDU (título, descripción, criterios de
+ * aceptación, prioridad, story points) con el issue original de GitHub. Se usa
+ * cuando el usuario aplica mejoras DoR y quiere "pushear" los cambios al repo.
+ *
+ * @param repoUrl - URL del repositorio (https://github.com/owner/repo)
+ * @param issueNumber - Número del issue a actualizar
+ * @param updates - Campos a actualizar (title, body, state)
+ * @param tokenOverride - Token opcional del proyecto (si no se usa el global)
+ * @returns El issue actualizado
+ * @throws Error si el token no está configurado o la API responde con error
+ */
+export async function updateGitHubIssue(
+  repoUrl: string,
+  issueNumber: number,
+  updates: {
+    title?: string;
+    body?: string;
+    state?: 'open' | 'closed';
+  },
+  tokenOverride?: string | null
+): Promise<{ number: number; title: string; html_url: string; state: string }> {
+  const parsed = parseRepoUrl(repoUrl);
+  if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
+
+  const token = getGitHubToken(tokenOverride);
+
+  // Construir solo los campos que se van a actualizar
+  const body: Record<string, string> = {};
+  if (updates.title !== undefined) body.title = updates.title;
+  if (updates.body !== undefined) body.body = updates.body;
+  if (updates.state !== undefined) body.state = updates.state;
+
+  if (Object.keys(body).length === 0) {
+    throw new Error('No se proporcionaron campos para actualizar (title, body, state).');
+  }
+
+  const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/issues/${issueNumber}`;
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'QA-SaaS-Platform',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`GitHub API error al actualizar issue #${issueNumber}: ${response.status} - ${errorBody}`);
+  }
+
+  const updated = await response.json() as {
+    number: number;
+    title: string;
+    html_url: string;
+    state: string;
+  };
+
+  return updated;
+}
+
+/**
+ * Construye el cuerpo del issue de GitHub a partir de los datos de la HDU (HDU-012).
+ *
+ * Genera un cuerpo Markdown estructurado con los campos de la HDU, incluyendo
+ * la referencia al issue original. Se usa para sincronizar los cambios del
+ * SaaS con el issue en GitHub.
+ *
+ * @param hdu - Datos de la historia de usuario
+ * @returns Texto Markdown listo para usar como cuerpo del issue
+ */
+export function buildIssueBodyFromHdu(hdu: {
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  priority: string;
+  storyPoints?: number | null;
+  displayId?: string | null;
+  githubUrl?: string | null;
+}): string {
+  const lines: string[] = [];
+
+  // Referencia al issue original (si existe)
+  if (hdu.githubUrl) {
+    lines.push(`🔗 Issue original: ${hdu.githubUrl}`);
+    lines.push('');
+  }
+
+  // ID de la HDU en el SaaS
+  if (hdu.displayId) {
+    lines.push(`**ID:** ${hdu.displayId}`);
+    lines.push('');
+  }
+
+  // Descripción
+  // Si la descripción ya contiene la referencia al issue original, la usamos tal cual
+  const descriptionText = hdu.description || '';
+  const hasReference = descriptionText.toLowerCase().includes('issue original:') ||
+    descriptionText.includes('🔗');
+
+  if (hasReference) {
+    lines.push(descriptionText);
+  } else if (descriptionText) {
+    lines.push(descriptionText);
+    if (hdu.githubUrl) {
+      lines.push('');
+      lines.push(`---`);
+      lines.push(`🔗 Issue original: ${hdu.githubUrl}`);
+    }
+  } else {
+    lines.push(`Issue original: ${hdu.githubUrl || 'N/A'}`);
+  }
+
+  lines.push('');
+
+  // Criterios de aceptación
+  if (hdu.acceptanceCriteria && hdu.acceptanceCriteria.length > 0) {
+    lines.push('## Criterios de Aceptación');
+    lines.push('');
+    for (const criterion of hdu.acceptanceCriteria) {
+      lines.push(`- ${criterion}`);
+    }
+    lines.push('');
+  }
+
+  // Metadatos
+  lines.push('## Metadatos');
+  lines.push('');
+  lines.push(`- **Prioridad:** ${hdu.priority || 'MEDIUM'}`);
+  if (hdu.storyPoints) {
+    lines.push(`- **Story Points:** ${hdu.storyPoints}`);
+  }
+
+  return lines.join('\n');
+}
+
 export default {
   fetchIssues,
   fetchBranches,
@@ -398,4 +540,6 @@ export default {
   mapIssueToUserStory,
   hasGitHubIssueChanged,
   parseRepoUrl,
+  updateGitHubIssue,
+  buildIssueBodyFromHdu,
 };

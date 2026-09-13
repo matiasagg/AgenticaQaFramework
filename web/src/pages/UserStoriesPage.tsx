@@ -18,6 +18,7 @@ interface UserStory {
   title: string
   description: string
   acceptanceCriteria: string[]
+  definitionOfDone?: string[]
   priority: string
   storyPoints: number | null
   status: string
@@ -31,21 +32,45 @@ interface UserStory {
   epic?: { id: string; name: string } | null
   feature?: { id: string; name: string } | null
   createdAt: string
+  externalSystem?: string | null
+  externalId?: string | null
+  externalUrl?: string | null
+  syncStatus?: string | null
+  syncedAt?: string | null
+}
+
+interface DorCheckItem {
+  id: string
+  name: string
+  description: string
+  passed: boolean
+  weight: number
+  suggestion?: string
+  evaluatedValue?: string | string[]
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
+}
+
+interface DorRecommendation {
+  checkId: string
+  checkName: string
+  message: string
+  source: 'rules' | 'ai'
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
 }
 
 interface DorValidation {
   score: number
   isReady: boolean
-  checklist: Array<{
-    id: string
-    name: string
-    description: string
-    passed: boolean
-    weight: number
-    suggestion?: string
-  }>
+  checklist: DorCheckItem[]
   summary: string
   recommendations: string[]
+  recommendationsDetailed: DorRecommendation[]
   // Indica si el resultado viene de la caché del backend (análisis guardado)
   // o fue recién generado (con IA). validatedAt: fecha del análisis original.
   cached?: boolean
@@ -68,6 +93,18 @@ export default function UserStoriesPage() {
   const [generatingTests, setGeneratingTests] = useState(false)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [pushingHdu, setPushingHdu] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    acceptanceCriteria: [''],
+    definitionOfDone: [''],
+    priority: 'MEDIUM',
+    storyPoints: 5,
+  })
+  const [savingHdu, setSavingHdu] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -276,6 +313,98 @@ export default function UserStoriesPage() {
       ...prev,
       acceptanceCriteria: prev.acceptanceCriteria.filter((_, i) => i !== index),
     }))
+  }
+
+  /**
+   * Formatea el valor evaluado para mostrarlo en el reporte.
+   * Convierte arrays en listas legibles y maneja undefined.
+   */
+  const formatEvaluatedValue = (value: string | string[] | undefined): string => {
+    if (value === undefined || value === null) return '—'
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '—'
+      return value.join(', ')
+    }
+    return value.length > 100 ? `${value.substring(0, 100)}...` : value
+  }
+
+  /**
+   * Inicia la edición de la HDU desde el modal DoR.
+   */
+  const handleStartEdit = () => {
+    if (!selectedStory) return
+    setEditFormData({
+      title: selectedStory.title,
+      description: selectedStory.description,
+      acceptanceCriteria: selectedStory.acceptanceCriteria.length > 0 ? selectedStory.acceptanceCriteria : [''],
+      definitionOfDone: selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 ? selectedStory.definitionOfDone : [''],
+      priority: selectedStory.priority,
+      storyPoints: selectedStory.storyPoints || 5,
+    })
+    setIsEditing(true)
+  }
+
+  /**
+   * Guarda los cambios de la HDR y revalida el DoR.
+   */
+  const handleSaveHdu = async () => {
+    if (!selectedStory) return
+    setSavingHdu(true)
+    try {
+      await api.put(`/user-stories/${selectedStory.id}`, {
+        title: editFormData.title,
+        description: editFormData.description,
+        acceptanceCriteria: editFormData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: editFormData.definitionOfDone.filter(c => c.trim() !== ''),
+        priority: editFormData.priority,
+        storyPoints: editFormData.storyPoints,
+      })
+      setIsEditing(false)
+      // Revalidar con los nuevos datos
+      await handleValidateDor(selectedStory.id, true)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar la HDU')
+    } finally {
+      setSavingHdu(false)
+    }
+  }
+
+  /**
+   * Aplica un parche DoR específico a la HDU (HDU-012).
+   * Llama al endpoint /apply-dor-fixes y recarga la validación.
+   */
+  const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
+    setApplyingFix(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
+        fixes: [fix]
+      })
+      // Recargar la validación para reflejar los cambios
+      await handleValidateDor(storyId, true)
+      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+    } finally {
+      setApplyingFix(null)
+    }
+  }
+
+  /**
+   * Sincroniza los cambios de la HDU con GitHub (HDU-012).
+   * Llama al endpoint /push-hdu para actualizar el issue.
+   */
+  const handlePushHdu = async (storyId: string) => {
+    setPushingHdu(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/push-hdu`, {})
+      const { github, syncedFields } = response.data
+      alert(`✅ HDU sincronizada con GitHub.\n\nIssue #${github.issueNumber}: ${github.issueUrl}\n\nCampos sincronizados: ${syncedFields.join(', ')}`)
+      fetchUserStories()
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al sincronizar con GitHub')
+    } finally {
+      setPushingHdu(null)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -544,152 +673,367 @@ export default function UserStoriesPage() {
       {/* Modal de validación DoR */}
       {validationResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Resultado Validación DoR
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Header fijo */}
+            <div className="p-4 border-b border-gray-200 dark:bg-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Validación DoR
               </h2>
-              {/* Indicador de origen del resultado: caché (guardado) o freshly generado */}
               <div className="flex items-center gap-2">
                 {validationResult.cached && (
-                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-xs">
-                    📌 Guardado{validationResult.validatedAt ? ` · ${new Date(validationResult.validatedAt).toLocaleString()}` : ''}
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
+                    📌 Caché
                   </span>
                 )}
                 <button
                   onClick={() => selectedStory && handleValidateDor(selectedStory.id, true)}
                   disabled={validatingDor === selectedStory?.id}
-                  className="px-3 py-1 text-sm bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50"
-                  title="Vuelve a ejecutar el análisis con IA (el resultado puede variar)"
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                  title="Refrescar análisis con IA"
                 >
-                  🔄 Refrescar análisis
+                  🔄
                 </button>
-              </div>
-            </div>
-            
-            {/* Score */}
-            <div className={`p-4 rounded-lg mb-4 ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-medium">
-                  Score: {validationResult.score}%
-                </span>
-                <span className={`px-3 py-1 rounded-full text-sm ${validationResult.isReady ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>
-                  {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
-                </span>
-              </div>
-              <p className="text-sm mt-2 text-gray-600 dark:text-gray-400">
-                {validationResult.summary}
-              </p>
-            </div>
-
-            {/* Checklist */}
-            <div className="space-y-2 mb-4">
-              {validationResult.checklist.map((item) => (
-                <div key={item.id} className={`p-3 rounded-lg ${item.passed ? 'bg-green-50 dark:bg-green-900' : 'bg-red-50 dark:bg-red-900'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{item.name}</span>
-                    <span>{item.passed ? '✓' : '✗'}</span>
-                  </div>
-                  {!item.passed && item.suggestion && (
-                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                      💡 {item.suggestion}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Recommendations */}
-            {validationResult.recommendations.length > 0 && (
-              <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg mb-4">
-                <h3 className="font-medium text-blue-800 dark:text-blue-200 mb-2">
-                  Recomendaciones:
-                </h3>
-                <ul className="list-disc list-inside text-sm text-blue-700 dark:text-blue-300">
-                  {validationResult.recommendations.map((rec, i) => (
-                    <li key={i}>{rec}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* AI Analysis */}
-            {aiAnalysis && (
-              <div className="bg-purple-50 dark:bg-purple-900 p-4 rounded-lg mb-4">
-                <h3 className="font-medium text-purple-800 dark:text-purple-200 mb-2 flex items-center">
-                  🤖 Análisis de IA (Gemini)
-                  <span className="ml-2 px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded-full text-xs">
-                    Score IA: {aiAnalysis.score}%
-                  </span>
-                </h3>
-                
-                {aiAnalysis.missingElements?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Elementos faltantes:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.missingElements.map((elem: string, i: number) => (
-                        <li key={i}>{elem}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.suggestions?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Sugerencias de IA:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.suggestions.map((sug: string, i: number) => (
-                        <li key={i}>{sug}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.riskAreas?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Áreas de riesgo:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.riskAreas.map((risk: string, i: number) => (
-                        <li key={i}>{risk}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.improvedDescription && (
-                  <div className="mt-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-1">Descripción mejorada sugerida:</p>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 italic">
-                      "{aiAnalysis.improvedDescription}"
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  setValidationResult(null)
-                  setAiAnalysis(null)
-                }}
-                className="btn-secondary"
-              >
-                Cerrar
-              </button>
-              {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
                 <button
-                  onClick={() => {
-                    handleGenerateTests(selectedStory.id)
-                    setValidationResult(null)
-                    setAiAnalysis(null)
-                  }}
-                  className="btn-primary"
-                  disabled={generatingTests}
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
-                  {generatingTests ? 'Generando...' : 'Generar Suite de Pruebas'}
+                  ✕
                 </button>
-              )}
+              </div>
+            </div>
+
+            {/* Contenido: 2 columnas */}
+            <div className="flex-1 overflow-y-auto flex">
+              {/* Columna izquierda: HDU (editable) */}
+              <div className="w-2/5 border-r border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
+                {selectedStory && !isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        {selectedStory.displayId && (
+                          <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                            {selectedStory.displayId}
+                          </span>
+                        )}
+                        <h3 className="font-medium text-gray-900 dark:text-white mt-1">
+                          {selectedStory.title}
+                        </h3>
+                      </div>
+                      <button
+                        onClick={handleStartEdit}
+                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200 shrink-0"
+                      >
+                        ✏️ Editar
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      {selectedStory.description}
+                    </p>
+                    <div className="text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Prioridad:</span>
+                        <span className="font-medium">{selectedStory.priority}</span>
+                      </div>
+                      {selectedStory.storyPoints && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Story Points:</span>
+                          <span className="font-medium">{selectedStory.storyPoints}</span>
+                        </div>
+                      )}
+                    </div>
+                    {selectedStory.acceptanceCriteria.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios de aceptación:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.acceptanceCriteria.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Definition of Done:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.definitionOfDone.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedStory && isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                        {selectedStory.displayId}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={handleSaveHdu}
+                          disabled={savingHdu}
+                          className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded hover:bg-green-200 disabled:opacity-50"
+                        >
+                          {savingHdu ? '⏳' : '💾 Guardar'}
+                        </button>
+                        <button
+                          onClick={() => setIsEditing(false)}
+                          className="px-2 py-1 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded hover:bg-gray-200"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Título</label>
+                      <input
+                        type="text"
+                        value={editFormData.title}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Descripción</label>
+                      <textarea
+                        value={editFormData.description}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                        rows={3}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Prioridad</label>
+                        <select
+                          value={editFormData.priority}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          <option value="HIGH">Alta</option>
+                          <option value="MEDIUM">Media</option>
+                          <option value="LOW">Baja</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Story Points</label>
+                        <select
+                          value={editFormData.storyPoints}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, storyPoints: Number(e.target.value) }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          {[1, 2, 3, 5, 8, 13, 21].map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Criterios de aceptación</label>
+                      {editFormData.acceptanceCriteria.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newCriteria = [...editFormData.acceptanceCriteria]
+                              newCriteria[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newCriteria = editFormData.acceptanceCriteria.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, acceptanceCriteria: [...prev.acceptanceCriteria, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio
+                      </button>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Definition of Done (DoD)</label>
+                      {editFormData.definitionOfDone.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newDod = [...editFormData.definitionOfDone]
+                              newDod[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newDod = editFormData.definitionOfDone.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, definitionOfDone: [...prev.definitionOfDone, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio DoD
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Columna derecha: Análisis */}
+              <div className="w-3/5 p-4 space-y-4 overflow-y-auto">
+                {/* Score */}
+                <div className={`p-3 rounded-lg text-center ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
+                  <div className="text-2xl font-bold">
+                    {validationResult.score}%
+                  </div>
+                  <div className={`text-xs font-medium ${validationResult.isReady ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
+                    {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
+                  </div>
+                </div>
+
+                {/* Criterios fallidos */}
+                {(() => {
+                  const failedChecks = validationResult.checklist.filter(item => !item.passed);
+                  if (failedChecks.length === 0) return (
+                    <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Todos los criterios pasaron</p>
+                  );
+                  return (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        ⚠️ Por mejorar ({failedChecks.length})
+                      </h3>
+                      {failedChecks.map((item) => (
+                        <div key={item.id} className="p-2 bg-red-50 dark:bg-red-900/30 rounded border border-red-200 dark:border-red-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium">{item.name}</span>
+                            {item.suggestedFix && selectedStory && (
+                              <button
+                                onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
+                                disabled={applyingFix === selectedStory.id}
+                                className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
+                              >
+                                ✨ Aplicar
+                              </button>
+                            )}
+                          </div>
+                          {item.suggestion && (
+                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                              💡 {item.suggestion}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Criterios pasados */}
+                {(() => {
+                  const passedChecks = validationResult.checklist.filter(item => item.passed);
+                  if (passedChecks.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {passedChecks.map((item) => (
+                        <span key={item.id} className="px-2 py-0.5 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">
+                          ✓ {item.name}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Análisis IA */}
+                {aiAnalysis && (
+                  <details className="group" open={false}>
+                    <summary className="cursor-pointer text-xs font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-1">
+                      🤖 Análisis IA ({aiAnalysis.score}%)
+                      <span className="text-xs text-gray-400 group-open:hidden">click para expandir</span>
+                    </summary>
+                    <div className="mt-2 space-y-3 pl-3 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
+                      {aiAnalysis.missingElements?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Elementos faltantes:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.missingElements.map((elem: string, i: number) => (
+                              <li key={i}>{elem}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.suggestions?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Sugerencias:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.suggestions.map((sug: string, i: number) => (
+                              <li key={i}>{sug}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.riskAreas?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Riesgos:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.riskAreas.map((risk: string, i: number) => (
+                              <li key={i}>{risk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+
+            {/* Botones fijos */}
+            <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <div className="flex justify-end space-x-3">
+                {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
+                  <button
+                    onClick={() => {
+                      handleGenerateTests(selectedStory.id);
+                      setValidationResult(null);
+                      setAiAnalysis(null);
+                    }}
+                    className="btn-primary text-sm"
+                    disabled={generatingTests}
+                  >
+                    {generatingTests ? '⏳ ...' : '🧪 Generar Pruebas'}
+                  </button>
+                )}
+                <button
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  className="btn-secondary text-sm"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -960,6 +1304,17 @@ export default function UserStoriesPage() {
                   >
                     {generatingE2E === story.id ? 'Generando E2E...' : 'Descargar Playwright'}
                   </button>
+                  {/* Botón Push a GitHub (solo para HDUs importadas de GitHub) */}
+                  {story.externalSystem === 'GITHUB' && (
+                    <button
+                      onClick={() => handlePushHdu(story.id)}
+                      className="px-3 py-1 text-sm bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={pushingHdu === story.id}
+                      title="Sincronizar cambios con el issue de GitHub"
+                    >
+                      {pushingHdu === story.id ? '⏳' : '⬆️ Push a GitHub'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
