@@ -355,6 +355,7 @@ export default function UserStoriesPage() {
         title: editFormData.title,
         description: editFormData.description,
         acceptanceCriteria: editFormData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: editFormData.definitionOfDone.filter(c => c.trim() !== ''),
         priority: editFormData.priority,
         storyPoints: editFormData.storyPoints,
       })
@@ -742,9 +743,22 @@ export default function UserStoriesPage() {
                     </div>
                     {selectedStory.acceptanceCriteria.length > 0 && (
                       <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios:</p>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios de aceptación:</p>
                         <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
                           {selectedStory.acceptanceCriteria.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Definition of Done:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.definitionOfDone.map((c, i) => (
                             <li key={i} className="flex items-start gap-1">
                               <span className="text-gray-400">•</span>
                               <span>{c}</span>
@@ -852,6 +866,38 @@ export default function UserStoriesPage() {
                         className="mt-1 text-xs text-blue-600 hover:text-blue-700"
                       >
                         + Agregar criterio
+                      </button>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Definition of Done (DoD)</label>
+                      {editFormData.definitionOfDone.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newDod = [...editFormData.definitionOfDone]
+                              newDod[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newDod = editFormData.definitionOfDone.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, definitionOfDone: [...prev.definitionOfDone, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio DoD
                       </button>
                     </div>
                   </div>
