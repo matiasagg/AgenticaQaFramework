@@ -621,160 +621,186 @@ export default function UserStoriesPage() {
       {/* Modal de validación DoR */}
       {validationResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
             {/* Header fijo */}
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                    Validación DoR
-                  </h2>
-                  {selectedStory && (
-                    <div className="flex items-center gap-2 mt-1">
+            <div className="p-4 border-b border-gray-200 dark:bg-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Validación DoR
+              </h2>
+              <div className="flex items-center gap-2">
+                {validationResult.cached && (
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
+                    📌 Caché
+                  </span>
+                )}
+                <button
+                  onClick={() => selectedStory && handleValidateDor(selectedStory.id, true)}
+                  disabled={validatingDor === selectedStory?.id}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                  title="Refrescar análisis con IA"
+                >
+                  🔄
+                </button>
+                <button
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido: 2 columnas */}
+            <div className="flex-1 overflow-y-auto flex">
+              {/* Columna izquierda: HDU */}
+              <div className="w-2/5 border-r border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
+                {selectedStory && (
+                  <div className="space-y-3">
+                    <div>
                       {selectedStory.displayId && (
                         <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                           {selectedStory.displayId}
                         </span>
                       )}
-                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs">
+                      <h3 className="font-medium text-gray-900 dark:text-white mt-1">
                         {selectedStory.title}
-                      </p>
+                      </h3>
                     </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {validationResult.cached && (
-                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
-                      📌 Caché
-                    </span>
-                  )}
-                  <button
-                    onClick={() => selectedStory && handleValidateDor(selectedStory.id, true)}
-                    disabled={validatingDor === selectedStory?.id}
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
-                    title="Refrescar análisis con IA"
-                  >
-                    🔄
-                  </button>
-                  <button
-                    onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Contenido scrolleable */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {/* Score principal */}
-              <div className={`p-4 rounded-lg text-center ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
-                <div className="text-3xl font-bold">
-                  {validationResult.score}%
-                </div>
-                <div className={`mt-1 text-sm font-medium ${validationResult.isReady ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
-                  {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  {validationResult.summary}
-                </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3">
+                      {selectedStory.description}
+                    </p>
+                    <div className="text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Prioridad:</span>
+                        <span className="font-medium">{selectedStory.priority}</span>
+                      </div>
+                      {selectedStory.storyPoints && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Story Points:</span>
+                          <span className="font-medium">{selectedStory.storyPoints}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Criterios:</span>
+                        <span className="font-medium">{selectedStory.acceptanceCriteria.length}</span>
+                      </div>
+                    </div>
+                    {selectedStory.acceptanceCriteria.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios de aceptación:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.acceptanceCriteria.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span className="line-clamp-1">{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Criterios fallidos con acción (HDU-012) */}
-              {(() => {
-                const failedChecks = validationResult.checklist.filter(item => !item.passed);
-                if (failedChecks.length === 0) return null;
-                return (
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      ⚠️ Criterios por mejorar ({failedChecks.length})
-                    </h3>
-                    {failedChecks.map((item) => (
-                      <div key={item.id} className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-sm">{item.name}</span>
-                          {item.suggestedFix && selectedStory && (
-                            <button
-                              onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
-                              disabled={applyingFix === selectedStory.id}
-                              className="px-2 py-1 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
-                            >
-                              ✨ Aplicar
-                            </button>
+              {/* Columna derecha: Análisis */}
+              <div className="w-3/5 p-4 space-y-4 overflow-y-auto">
+                {/* Score */}
+                <div className={`p-3 rounded-lg text-center ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
+                  <div className="text-2xl font-bold">
+                    {validationResult.score}%
+                  </div>
+                  <div className={`text-xs font-medium ${validationResult.isReady ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
+                    {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
+                  </div>
+                </div>
+
+                {/* Criterios fallidos */}
+                {(() => {
+                  const failedChecks = validationResult.checklist.filter(item => !item.passed);
+                  if (failedChecks.length === 0) return (
+                    <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Todos los criterios pasaron</p>
+                  );
+                  return (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        ⚠️ Por mejorar ({failedChecks.length})
+                      </h3>
+                      {failedChecks.map((item) => (
+                        <div key={item.id} className="p-2 bg-red-50 dark:bg-red-900/30 rounded border border-red-200 dark:border-red-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium">{item.name}</span>
+                            {item.suggestedFix && selectedStory && (
+                              <button
+                                onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
+                                disabled={applyingFix === selectedStory.id}
+                                className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
+                              >
+                                ✨ Aplicar
+                              </button>
+                            )}
+                          </div>
+                          {item.suggestion && (
+                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                              💡 {item.suggestion}
+                            </p>
                           )}
                         </div>
-                        {item.suggestion && (
-                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                            💡 {item.suggestion}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+                      ))}
+                    </div>
+                  );
+                })()}
 
-              {/* Criterios pasados (compacto) */}
-              {(() => {
-                const passedChecks = validationResult.checklist.filter(item => item.passed);
-                if (passedChecks.length === 0) return null;
-                return (
-                  <div className="flex flex-wrap gap-2">
-                    {passedChecks.map((item) => (
-                      <span key={item.id} className="px-2 py-1 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded-full">
-                        ✓ {item.name}
-                      </span>
-                    ))}
-                  </div>
-                );
-              })()}
+                {/* Criterios pasados */}
+                {(() => {
+                  const passedChecks = validationResult.checklist.filter(item => item.passed);
+                  if (passedChecks.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {passedChecks.map((item) => (
+                        <span key={item.id} className="px-2 py-0.5 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">
+                          ✓ {item.name}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
 
-              {/* Mejoras de IA colapsables */}
-              {aiAnalysis && (
-                <details className="group" open={false}>
-                  <summary className="cursor-pointer text-sm font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-2">
-                    🤖 Análisis IA (Score: {aiAnalysis.score}%)
-                    <span className="text-xs text-gray-400 group-open:hidden">click para expandir</span>
-                  </summary>
-                  <div className="mt-2 space-y-3 pl-4 border-l-2 border-purple-200 dark:border-purple-800">
-                    {aiAnalysis.missingElements?.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Faltantes:</p>
-                        <ul className="text-xs text-gray-500 dark:text-gray-400 list-disc list-inside">
-                          {aiAnalysis.missingElements.slice(0, 3).map((elem: string, i: number) => (
-                            <li key={i}>{elem}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {aiAnalysis.suggestions?.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Sugerencias:</p>
-                        <ul className="text-xs text-gray-500 dark:text-gray-400 list-disc list-inside">
-                          {aiAnalysis.suggestions.slice(0, 3).map((sug: string, i: number) => (
-                            <li key={i}>{sug}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {aiAnalysis.riskAreas?.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Riesgos:</p>
-                        <ul className="text-xs text-gray-500 dark:text-gray-400 list-disc list-inside">
-                          {aiAnalysis.riskAreas.slice(0, 2).map((risk: string, i: number) => (
-                            <li key={i}>{risk}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
+                {/* Análisis IA */}
+                {aiAnalysis && (
+                  <details className="group" open={false}>
+                    <summary className="cursor-pointer text-xs font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-1">
+                      🤖 IA ({aiAnalysis.score}%)
+                      <span className="text-xs text-gray-400 group-open:hidden">▶</span>
+                    </summary>
+                    <div className="mt-2 space-y-2 pl-3 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
+                      {aiAnalysis.suggestions?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Sugerencias:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside">
+                            {aiAnalysis.suggestions.slice(0, 3).map((sug: string, i: number) => (
+                              <li key={i} className="line-clamp-1">{sug}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.riskAreas?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Riesgos:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside">
+                            {aiAnalysis.riskAreas.slice(0, 2).map((risk: string, i: number) => (
+                              <li key={i} className="line-clamp-1">{risk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
             </div>
 
             {/* Botones fijos */}
-            <div className="p-6 pt-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <div className="flex justify-end space-x-3">
                 {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
                   <button
@@ -783,15 +809,15 @@ export default function UserStoriesPage() {
                       setValidationResult(null);
                       setAiAnalysis(null);
                     }}
-                    className="btn-primary"
+                    className="btn-primary text-sm"
                     disabled={generatingTests}
                   >
-                    {generatingTests ? '⏳ Generando...' : '🧪 Generar Pruebas'}
+                    {generatingTests ? '⏳ ...' : '🧪 Generar Pruebas'}
                   </button>
                 )}
                 <button
                   onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
-                  className="btn-secondary"
+                  className="btn-secondary text-sm"
                 >
                   Cerrar
                 </button>
