@@ -18,6 +18,7 @@ interface UserStory {
   title: string
   description: string
   acceptanceCriteria: string[]
+  definitionOfDone?: string[]
   priority: string
   storyPoints: number | null
   status: string
@@ -99,6 +100,7 @@ export default function UserStoriesPage() {
     title: '',
     description: '',
     acceptanceCriteria: [''],
+    definitionOfDone: [''],
     priority: 'MEDIUM',
     storyPoints: 5,
   })
@@ -335,6 +337,7 @@ export default function UserStoriesPage() {
       title: selectedStory.title,
       description: selectedStory.description,
       acceptanceCriteria: selectedStory.acceptanceCriteria.length > 0 ? selectedStory.acceptanceCriteria : [''],
+      definitionOfDone: selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 ? selectedStory.definitionOfDone : [''],
       priority: selectedStory.priority,
       storyPoints: selectedStory.storyPoints || 5,
     })
