@@ -922,16 +922,26 @@ export default function UserStoriesPage() {
                 {aiAnalysis && (
                   <details className="group" open={false}>
                     <summary className="cursor-pointer text-xs font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-1">
-                      🤖 IA ({aiAnalysis.score}%)
-                      <span className="text-xs text-gray-400 group-open:hidden">▶</span>
+                      🤖 Análisis IA ({aiAnalysis.score}%)
+                      <span className="text-xs text-gray-400 group-open:hidden">click para expandir</span>
                     </summary>
-                    <div className="mt-2 space-y-2 pl-3 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
+                    <div className="mt-2 space-y-3 pl-3 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
+                      {aiAnalysis.missingElements?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Elementos faltantes:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.missingElements.map((elem: string, i: number) => (
+                              <li key={i}>{elem}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                       {aiAnalysis.suggestions?.length > 0 && (
                         <div>
                           <p className="font-medium text-gray-600 dark:text-gray-400">Sugerencias:</p>
-                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside">
-                            {aiAnalysis.suggestions.slice(0, 3).map((sug: string, i: number) => (
-                              <li key={i} className="line-clamp-1">{sug}</li>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.suggestions.map((sug: string, i: number) => (
+                              <li key={i}>{sug}</li>
                             ))}
                           </ul>
                         </div>
@@ -939,9 +949,9 @@ export default function UserStoriesPage() {
                       {aiAnalysis.riskAreas?.length > 0 && (
                         <div>
                           <p className="font-medium text-gray-600 dark:text-gray-400">Riesgos:</p>
-                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside">
-                            {aiAnalysis.riskAreas.slice(0, 2).map((risk: string, i: number) => (
-                              <li key={i} className="line-clamp-1">{risk}</li>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.riskAreas.map((risk: string, i: number) => (
+                              <li key={i}>{risk}</li>
                             ))}
                           </ul>
                         </div>
