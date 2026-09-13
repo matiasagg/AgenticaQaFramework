@@ -625,9 +625,23 @@ export default function UserStoriesPage() {
             {/* Header fijo */}
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Validación DoR
-                </h2>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Validación DoR
+                  </h2>
+                  {selectedStory && (
+                    <div className="flex items-center gap-2 mt-1">
+                      {selectedStory.displayId && (
+                        <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                          {selectedStory.displayId}
+                        </span>
+                      )}
+                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs">
+                        {selectedStory.title}
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {validationResult.cached && (
                     <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
