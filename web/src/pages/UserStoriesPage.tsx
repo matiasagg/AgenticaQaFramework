@@ -94,6 +94,15 @@ export default function UserStoriesPage() {
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
   const [applyingFix, setApplyingFix] = useState<string | null>(null)
   const [pushingHdu, setPushingHdu] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    acceptanceCriteria: [''],
+    priority: 'MEDIUM',
+    storyPoints: 5,
+  })
+  const [savingHdu, setSavingHdu] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -315,6 +324,45 @@ export default function UserStoriesPage() {
       return value.join(', ')
     }
     return value.length > 100 ? `${value.substring(0, 100)}...` : value
+  }
+
+  /**
+   * Inicia la edición de la HDU desde el modal DoR.
+   */
+  const handleStartEdit = () => {
+    if (!selectedStory) return
+    setEditFormData({
+      title: selectedStory.title,
+      description: selectedStory.description,
+      acceptanceCriteria: selectedStory.acceptanceCriteria.length > 0 ? selectedStory.acceptanceCriteria : [''],
+      priority: selectedStory.priority,
+      storyPoints: selectedStory.storyPoints || 5,
+    })
+    setIsEditing(true)
+  }
+
+  /**
+   * Guarda los cambios de la HDR y revalida el DoR.
+   */
+  const handleSaveHdu = async () => {
+    if (!selectedStory) return
+    setSavingHdu(true)
+    try {
+      await api.put(`/user-stories/${selectedStory.id}`, {
+        title: editFormData.title,
+        description: editFormData.description,
+        acceptanceCriteria: editFormData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        priority: editFormData.priority,
+        storyPoints: editFormData.storyPoints,
+      })
+      setIsEditing(false)
+      // Revalidar con los nuevos datos
+      await handleValidateDor(selectedStory.id, true)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar la HDU')
+    } finally {
+      setSavingHdu(false)
+    }
   }
 
   /**
@@ -652,21 +700,29 @@ export default function UserStoriesPage() {
 
             {/* Contenido: 2 columnas */}
             <div className="flex-1 overflow-y-auto flex">
-              {/* Columna izquierda: HDU */}
+              {/* Columna izquierda: HDU (editable) */}
               <div className="w-2/5 border-r border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
-                {selectedStory && (
+                {selectedStory && !isEditing && (
                   <div className="space-y-3">
-                    <div>
-                      {selectedStory.displayId && (
-                        <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
-                          {selectedStory.displayId}
-                        </span>
-                      )}
-                      <h3 className="font-medium text-gray-900 dark:text-white mt-1">
-                        {selectedStory.title}
-                      </h3>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        {selectedStory.displayId && (
+                          <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                            {selectedStory.displayId}
+                          </span>
+                        )}
+                        <h3 className="font-medium text-gray-900 dark:text-white mt-1">
+                          {selectedStory.title}
+                        </h3>
+                      </div>
+                      <button
+                        onClick={handleStartEdit}
+                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200 shrink-0"
+                      >
+                        ✏️ Editar
+                      </button>
                     </div>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
                       {selectedStory.description}
                     </p>
                     <div className="text-xs space-y-1">
@@ -680,24 +736,121 @@ export default function UserStoriesPage() {
                           <span className="font-medium">{selectedStory.storyPoints}</span>
                         </div>
                       )}
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Criterios:</span>
-                        <span className="font-medium">{selectedStory.acceptanceCriteria.length}</span>
-                      </div>
                     </div>
                     {selectedStory.acceptanceCriteria.length > 0 && (
                       <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios de aceptación:</p>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios:</p>
                         <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
                           {selectedStory.acceptanceCriteria.map((c, i) => (
                             <li key={i} className="flex items-start gap-1">
                               <span className="text-gray-400">•</span>
-                              <span className="line-clamp-1">{c}</span>
+                              <span>{c}</span>
                             </li>
                           ))}
                         </ul>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {selectedStory && isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                        {selectedStory.displayId}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={handleSaveHdu}
+                          disabled={savingHdu}
+                          className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded hover:bg-green-200 disabled:opacity-50"
+                        >
+                          {savingHdu ? '⏳' : '💾 Guardar'}
+                        </button>
+                        <button
+                          onClick={() => setIsEditing(false)}
+                          className="px-2 py-1 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded hover:bg-gray-200"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Título</label>
+                      <input
+                        type="text"
+                        value={editFormData.title}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Descripción</label>
+                      <textarea
+                        value={editFormData.description}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                        rows={3}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Prioridad</label>
+                        <select
+                          value={editFormData.priority}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          <option value="HIGH">Alta</option>
+                          <option value="MEDIUM">Media</option>
+                          <option value="LOW">Baja</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Story Points</label>
+                        <select
+                          value={editFormData.storyPoints}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, storyPoints: Number(e.target.value) }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          {[1, 2, 3, 5, 8, 13, 21].map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Criterios de aceptación</label>
+                      {editFormData.acceptanceCriteria.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newCriteria = [...editFormData.acceptanceCriteria]
+                              newCriteria[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newCriteria = editFormData.acceptanceCriteria.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, acceptanceCriteria: [...prev.acceptanceCriteria, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
