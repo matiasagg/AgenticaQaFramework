@@ -585,8 +585,7 @@ export default function UserStoriesPage() {
     setIsEditing(true)
   }
 
-  /**
-   * Guarda los cambios de la HDR y revalida el DoR.
+   * Guarda los cambios de la HDU y revalida el DoR.
    */
   const handleSaveHdu = async () => {
     if (!selectedStory) return
