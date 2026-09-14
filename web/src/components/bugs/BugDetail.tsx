@@ -128,7 +128,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Pasos para Reproducir
             </h2>
-            {bug.stepsToReproduce.length > 0 ? (
+            {bug.stepsToReproduce && bug.stepsToReproduce.length > 0 ? (
               <ol className="list-decimal list-inside space-y-2">
                 {bug.stepsToReproduce.map((step, index) => (
                   <li key={index} className="text-gray-700 dark:text-gray-300">
@@ -164,7 +164,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
           </div>
 
           {/* Evidence Gallery */}
-          {bug.evidence.length > 0 && (
+          {bug.evidence && bug.evidence.length > 0 && (
             <div className="card">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Evidencias ({bug.evidence.length})
