@@ -8,6 +8,7 @@ interface BugDorModalProps {
   onRefresh: () => void
   isRefreshing: boolean
   onStartEdit: () => void
+  onCancelEdit: () => void
   isEditing: boolean
   editFormData: any
   onEditFormChange: (data: any) => void
@@ -24,6 +25,7 @@ export default function BugDorModal({
   onRefresh,
   isRefreshing,
   onStartEdit,
+  onCancelEdit,
   isEditing,
   editFormData,
   onEditFormChange,
@@ -134,7 +136,7 @@ export default function BugDorModal({
                       💾 Guardar
                     </button>
                     <button
-                      onClick={onStartEdit}
+                      onClick={onCancelEdit}
                       className="px-2 py-1 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded hover:bg-gray-200"
                     >
                       ✕

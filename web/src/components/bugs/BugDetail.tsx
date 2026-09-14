@@ -283,6 +283,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
         onRefresh={() => onValidateDor?.(bug.id, true)}
         isRefreshing={isRefreshing || false}
         onStartEdit={handleStartEdit}
+        onCancelEdit={() => setIsEditing(false)}
         isEditing={isEditing}
         editFormData={editFormData}
         onEditFormChange={setEditFormData}
