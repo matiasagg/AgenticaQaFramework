@@ -20,12 +20,24 @@ import {
   fetchIssues,
   fetchBranches,
   fetchPullRequests,
+  buildGitHubHduTitle,
 } from '../githubIntegration'
 
 describe('githubIntegration service', () => {
   beforeEach(() => {
     // Configuramos un token de prueba antes de cada test
     process.env.GITHUB_TOKEN = 'test-token-12345'
+  })
+
+  describe('buildGitHubHduTitle', () => {
+    it('prepends the SaaS correlativo to the GitHub issue title', () => {
+      expect(buildGitHubHduTitle('HDU-012', 'Aplicar mejoras DoR')).toBe('HDU-012 - Aplicar mejoras DoR')
+    })
+
+    it('does not duplicate an existing correlativo or bracket prefix', () => {
+      expect(buildGitHubHduTitle('HDU-012', '[HDU-012] Aplicar mejoras DoR')).toBe('HDU-012 - Aplicar mejoras DoR')
+      expect(buildGitHubHduTitle('HDU-012', 'HDU-012 - Aplicar mejoras DoR')).toBe('HDU-012 - Aplicar mejoras DoR')
+    })
   })
 
   afterEach(() => {

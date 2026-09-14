@@ -67,7 +67,10 @@ function detectIssueTarget(issue: { title: string; labels: Array<{ name: string 
 }
 
 function normalizeIssueTitle(title: string): string {
-  return title.replace(/^\s*\[(epic|epica|feature|hdu)(?:\s*[-_:]\s*[^\]]+)?\]\s*/i, '').trim();
+  return title
+    .replace(/^\s*\[(epic|epica|feature|hdu)(?:\s*[-_:]\s*[^\]]+)?\]\s*/i, '')
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .trim();
 }
 
 async function ensureDefaultEpic(projectId: string): Promise<{ id: string }> {
@@ -175,7 +178,7 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
  * Body: { issueNumbers: number[] }
  */
 router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { issueNumbers } = req.body;
+  const { issueNumbers, force = false } = req.body;
   if (!Array.isArray(issueNumbers) || issueNumbers.length === 0) {
     throw new ApiError('Falta issueNumbers (array de números de issue)', 400);
   }
@@ -237,7 +240,11 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
     } else {
       // Sincronizar HDU
       const story = stories.find((item) => item.externalId === String(issue.number));
-      if (!story || !hasGitHubIssueChanged(issue, story.syncedAt)) {
+      // `force` is used when opening the DoR editor. This is important for
+      // fields added after the original import (assignee, labels and branch):
+      // GitHub may not have changed the issue since the last regular sync,
+      // but the local record can still be missing those values.
+      if (!story || (!force && !hasGitHubIssueChanged(issue, story.syncedAt))) {
         skipped.push(issue.number);
         continue;
       }
@@ -246,7 +253,9 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
       await prisma.userStory.update({
         where: { id: story.id },
         data: {
-          title: mapped.title,
+          // GitHub puede contener el correlativo publicado por el SaaS; no lo
+          // persistas como parte del nombre funcional de la HDU.
+          title: normalizeIssueTitle(mapped.title),
           description: buildIssueDescription(mapped.description, mapped.githubUrl),
           acceptanceCriteria: mapped.acceptanceCriteria,
           definitionOfDone: mapped.definitionOfDone,
@@ -256,7 +265,9 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           storyPoints: mapped.storyPoints,
           labels: mapped.labels,
           assignee: mapped.assignee,
-          ...(mapped.branchName !== null ? { branchName: mapped.branchName } : {}),
+          // A null value is intentional: it removes a stale local branch when
+          // the GitHub issue no longer declares one in its metadata.
+          branchName: mapped.branchName ?? null,
           priority: mapped.priority as any,
           syncStatus: 'SYNCED',
           syncMetadata: {

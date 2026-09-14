@@ -213,6 +213,16 @@ export function mapIssueToUserStory(issue: GitHubIssue): {
   };
 }
 
+/** Construye el título que se publica en GitHub para una HDU del SaaS. */
+export function buildGitHubHduTitle(displayId: string | null | undefined, title: string): string {
+  const cleanTitle = title
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '')
+    .trim();
+
+  return displayId ? `${displayId} - ${cleanTitle}` : cleanTitle;
+}
+
 /**
  * Extrae los criterios de Definition of Done del cuerpo de un issue.
  * Busca secciones "Definition of Done", "DoD", "Definición de Terminado", etc.

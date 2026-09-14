@@ -160,11 +160,16 @@ export default function UserStoriesPage() {
     title: '',
     description: '',
     acceptanceCriteria: [''],
+    definitionOfDone: [''],
+    technicalNotes: [''],
+    evidences: [''],
+    dependencies: [''],
     priority: 'MEDIUM',
     storyPoints: 5,
     projectId: '',
     epicId: '',
     featureId: '',
+    testSuiteId: '',
     assignee: '',
     labels: '',
     branchName: '',
@@ -188,6 +193,16 @@ export default function UserStoriesPage() {
     }
   }
 
+  const fetchTestSuites = async (projectId: string) => {
+    if (!projectId) return
+    try {
+      const response = await api.get('/test-suites', { params: { projectId } })
+      setEditSuites(response.data.suites || [])
+    } catch {
+      setEditSuites([])
+    }
+  }
+
   const fetchProjects = async () => {
     try {
       const response = await api.get('/projects')
@@ -196,6 +211,8 @@ export default function UserStoriesPage() {
         const projectId = response.data.projects[0].id
         setFormData(prev => ({ ...prev, projectId }))
         await fetchEpics(projectId)
+        await fetchGithubOptions(projectId)
+        await fetchTestSuites(projectId)
       }
     } catch (error) {
       console.error('Error fetching projects:', error)
@@ -254,6 +271,10 @@ export default function UserStoriesPage() {
       await api.post('/user-stories', {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: formData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: formData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: formData.evidences.filter(c => c.trim() !== ''),
+        dependencies: formData.dependencies.filter(c => c.trim() !== ''),
         labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowForm(false)
@@ -261,11 +282,16 @@ export default function UserStoriesPage() {
         title: '',
         description: '',
         acceptanceCriteria: [''],
+        definitionOfDone: [''],
+        technicalNotes: [''],
+        evidences: [''],
+        dependencies: [''],
         priority: 'MEDIUM',
         storyPoints: 5,
         projectId: projects[0]?.id || '',
         epicId: '',
         featureId: '',
+        testSuiteId: '',
         assignee: '',
         labels: '',
         branchName: '',
@@ -335,15 +361,22 @@ export default function UserStoriesPage() {
       title: story.title,
       description: story.description,
       acceptanceCriteria: story.acceptanceCriteria.length > 0 ? story.acceptanceCriteria : [''],
+      definitionOfDone: story.definitionOfDone && story.definitionOfDone.length > 0 ? story.definitionOfDone : [''],
+      technicalNotes: story.technicalNotes && story.technicalNotes.length > 0 ? story.technicalNotes : [''],
+      evidences: story.evidences && story.evidences.length > 0 ? story.evidences : [''],
+      dependencies: story.dependencies && story.dependencies.length > 0 ? story.dependencies : [''],
       priority: story.priority,
       storyPoints: story.storyPoints || 5,
       projectId: story.projectId,
       epicId: story.epicId || '',
       featureId: story.featureId || '',
+      testSuiteId: story.testSuite?.id || '',
       assignee: story.assignee || '',
       labels: (story.labels || []).join(', '),
       branchName: story.branchName || '',
     })
+    if (story.projectId) fetchGithubOptions(story.projectId)
+    if (story.projectId) fetchTestSuites(story.projectId)
     if (story.projectId) {
       fetchEpics(story.projectId).then(() => {
         if (story.epicId) fetchFeatures(story.epicId)
@@ -359,6 +392,10 @@ export default function UserStoriesPage() {
       await api.put(`/user-stories/${editingStory.id}`, {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: formData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: formData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: formData.evidences.filter(c => c.trim() !== ''),
+        dependencies: formData.dependencies.filter(c => c.trim() !== ''),
         labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowEditForm(false)
@@ -390,29 +427,136 @@ export default function UserStoriesPage() {
     }))
   }
 
+  const updateFormListItem = (
+    field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies',
+    index: number,
+    value: string,
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: prev[field].map((item, itemIndex) => itemIndex === index ? value : item),
+    }))
+  }
+
+  const addFormListItem = (field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies') => {
+    setFormData(prev => ({ ...prev, [field]: [...prev[field], ''] }))
+  }
+
+  const removeFormListItem = (field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number) => {
+    setFormData(prev => ({ ...prev, [field]: prev[field].filter((_, itemIndex) => itemIndex !== index) }))
+  }
+
+  const renderEnrichedFormFields = () => (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asignado a</label>
+          <select
+            className="input-field mt-1"
+            value={formData.assignee}
+            onChange={(e) => setFormData(prev => ({ ...prev, assignee: e.target.value }))}
+          >
+            <option value="">Sin asignar</option>
+            {githubCollaborators.map(user => <option key={user.login} value={user.login}>{user.login}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Labels (coma)</label>
+          <input
+            className="input-field mt-1"
+            placeholder="frontend, p1, qa"
+            value={formData.labels}
+            onChange={(e) => setFormData(prev => ({ ...prev, labels: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Rama</label>
+          <input
+            className="input-field mt-1"
+            list="hdu-github-branches"
+            placeholder="Selecciona o escribe una rama"
+            value={formData.branchName}
+            onChange={(e) => setFormData(prev => ({ ...prev, branchName: e.target.value }))}
+          />
+          <datalist id="hdu-github-branches">{editBranches.map(branch => <option key={branch} value={branch} />)}</datalist>
+        </div>
+      </div>
+      {([
+        { field: 'definitionOfDone' as const, label: 'Definition of Done (DoD)', placeholder: 'Criterio de terminado' },
+        { field: 'technicalNotes' as const, label: 'Notas técnicas', placeholder: 'Nota técnica' },
+        { field: 'evidences' as const, label: 'Evidencias', placeholder: 'Link / captura / log' },
+        { field: 'dependencies' as const, label: 'Dependencias', placeholder: 'Issue / servicio / equipo' },
+      ]).map(({ field, label, placeholder }) => (
+        <div key={field}>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+          {formData[field].map((item, index) => (
+            <div key={index} className="flex gap-2 mt-1">
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => updateFormListItem(field, index, e.target.value)}
+                className="input-field flex-1"
+                placeholder={placeholder}
+              />
+              <button
+                type="button"
+                onClick={() => removeFormListItem(field, index)}
+                className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => addFormListItem(field)} className="mt-2 text-sm text-primary-600 hover:text-primary-700">
+            + Agregar {label.toLowerCase()}
+          </button>
+        </div>
+      ))}
+    </>
+  )
+
   /**
    * Inicia la edición de la HDU desde el modal DoR.
    */
-  const handleStartEdit = () => {
+  const handleStartEdit = async () => {
     if (!selectedStory) return
+
+    // Refresh GitHub-backed metadata before opening the editor. A normal sync
+    // intentionally skips unchanged issues, but these fields may have been
+    // added locally after the issue was imported.
+    let storyToEdit = selectedStory
+    if (selectedStory.externalSystem === 'GITHUB' && selectedStory.externalId) {
+      try {
+        await api.post(`/github-sync/${selectedStory.projectId}/sync`, {
+          issueNumbers: [Number(selectedStory.externalId)],
+          force: true,
+        })
+        const refreshed = await api.get(`/user-stories/${selectedStory.id}`)
+        storyToEdit = refreshed.data.userStory
+        setSelectedStory(storyToEdit)
+      } catch (error) {
+        // Keep the local values editable if GitHub is temporarily unavailable.
+        console.warn('No se pudo refrescar la metadata desde GitHub:', error)
+      }
+    }
     setEditFormData({
-      title: selectedStory.title,
-      description: selectedStory.description,
-      acceptanceCriteria: selectedStory.acceptanceCriteria.length > 0 ? selectedStory.acceptanceCriteria : [''],
-      definitionOfDone: selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 ? selectedStory.definitionOfDone : [''],
-      technicalNotes: selectedStory.technicalNotes && selectedStory.technicalNotes.length > 0 ? selectedStory.technicalNotes : [''],
-      evidences: selectedStory.evidences && selectedStory.evidences.length > 0 ? selectedStory.evidences : [''],
-      dependencies: selectedStory.dependencies && selectedStory.dependencies.length > 0 ? selectedStory.dependencies : [''],
-      priority: selectedStory.priority,
-      storyPoints: selectedStory.storyPoints || 5,
+      title: storyToEdit.title,
+      description: storyToEdit.description,
+      acceptanceCriteria: storyToEdit.acceptanceCriteria.length > 0 ? storyToEdit.acceptanceCriteria : [''],
+      definitionOfDone: storyToEdit.definitionOfDone && storyToEdit.definitionOfDone.length > 0 ? storyToEdit.definitionOfDone : [''],
+      technicalNotes: storyToEdit.technicalNotes && storyToEdit.technicalNotes.length > 0 ? storyToEdit.technicalNotes : [''],
+      evidences: storyToEdit.evidences && storyToEdit.evidences.length > 0 ? storyToEdit.evidences : [''],
+      dependencies: storyToEdit.dependencies && storyToEdit.dependencies.length > 0 ? storyToEdit.dependencies : [''],
+      priority: storyToEdit.priority,
+      storyPoints: storyToEdit.storyPoints || 5,
     })
     // Precargar asignación, labels y rama
-    setEditAssignee(selectedStory.assignee || '')
-    setEditLabels((selectedStory.labels || []).join(', '))
-    setEditBranchName(selectedStory.branchName || '')
+    setEditAssignee(storyToEdit.assignee || '')
+    setEditLabels((storyToEdit.labels || []).join(', '))
+    setEditBranchName(storyToEdit.branchName || '')
     // Precargar los combos de feature y suite con los valores actuales
-    setEditFeatureId(selectedStory.featureId || '')
-    setEditSuiteId(selectedStory.testSuite?.id || '')
+    setEditFeatureId(storyToEdit.featureId || '')
+    setEditSuiteId(storyToEdit.testSuite?.id || '')
     // Cargar features del proyecto y suites del proyecto para los combos
     if (selectedStory.projectId) {
       api.get('/features', { params: { projectId: selectedStory.projectId } })
@@ -586,9 +730,10 @@ export default function UserStoriesPage() {
                     value={formData.projectId}
                     onChange={async (e) => {
                       const projectId = e.target.value
-                      setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
+                      setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '', testSuiteId: '' }))
                       if (projectId) await fetchEpics(projectId)
                       if (projectId) await fetchGithubOptions(projectId)
+                      if (projectId) await fetchTestSuites(projectId)
                     }}
                     className="input-field"
                     required
@@ -638,6 +783,18 @@ export default function UserStoriesPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Suite de pruebas</label>
+                <select
+                  value={formData.testSuiteId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, testSuiteId: e.target.value }))}
+                  className="input-field mt-1"
+                >
+                  <option value="">Sin suite...</option>
+                  {editSuites.map((suite) => <option key={suite.id} value={suite.id}>{suite.title}</option>)}
+                </select>
               </div>
 
               <div>
@@ -732,15 +889,7 @@ export default function UserStoriesPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <select className="input-field" value={formData.assignee} onChange={(e) => setFormData(prev => ({ ...prev, assignee: e.target.value }))}>
-                  <option value="">Sin asignar</option>
-                  {githubCollaborators.map(user => <option key={user.login} value={user.login}>{user.login}</option>)}
-                </select>
-                <input className="input-field" placeholder="Labels separados por coma" value={formData.labels} onChange={(e) => setFormData(prev => ({ ...prev, labels: e.target.value }))} />
-                <input className="input-field" list="hdu-github-branches" placeholder="Rama" value={formData.branchName} onChange={(e) => setFormData(prev => ({ ...prev, branchName: e.target.value }))} />
-                <datalist id="hdu-github-branches">{editBranches.map(branch => <option key={branch} value={branch} />)}</datalist>
-              </div>
+              {renderEnrichedFormFields()}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <button
@@ -1286,8 +1435,9 @@ export default function UserStoriesPage() {
                   value={formData.projectId}
                   onChange={async (e) => {
                     const projectId = e.target.value
-                    setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
+                    setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '', testSuiteId: '' }))
                     if (projectId) await fetchEpics(projectId)
+                    if (projectId) await fetchGithubOptions(projectId)
                   }}
                   className="input-field"
                   required
@@ -1336,6 +1486,18 @@ export default function UserStoriesPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Suite de pruebas</label>
+                <select
+                  value={formData.testSuiteId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, testSuiteId: e.target.value }))}
+                  className="input-field mt-1"
+                >
+                  <option value="">Sin suite...</option>
+                  {editSuites.map((suite) => <option key={suite.id} value={suite.id}>{suite.title}</option>)}
+                </select>
               </div>
 
               <div>
@@ -1429,6 +1591,8 @@ export default function UserStoriesPage() {
                   </select>
                 </div>
               </div>
+
+              {renderEnrichedFormFields()}
 
               <div className="flex justify-end space-x-3 pt-4">
                 <button

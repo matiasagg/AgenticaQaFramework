@@ -19,7 +19,7 @@ import {
   buildAiStoryRecommendations,
   normalizeExternalStatus,
 } from '../services/storyWorkflow';
-import { updateGitHubIssue, buildIssueBodyFromHdu } from '../services/githubIntegration';
+import { updateGitHubIssue, buildIssueBodyFromHdu, buildGitHubHduTitle } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
 
 const router = Router();
@@ -63,7 +63,23 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
  * Crea una nueva historia de usuario (HDU)
  */
 router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, projectId, featureId } = req.body;
+  const {
+    title,
+    description,
+    acceptanceCriteria,
+    priority,
+    storyPoints,
+    projectId,
+    featureId,
+    testSuiteId,
+    definitionOfDone,
+    technicalNotes,
+    evidences,
+    dependencies,
+    assignee,
+    labels,
+    branchName,
+  } = req.body;
 
   // Validar campos requeridos
   if (!title || !description || !acceptanceCriteria || !projectId || !featureId) {
@@ -93,6 +109,17 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     throw new ApiError('Feature no encontrada o no pertenece al proyecto', 404);
   }
 
+  let suiteToConnect: { id: string } | null = null;
+  if (testSuiteId) {
+    suiteToConnect = await prisma.testSuite.findFirst({
+      where: { id: testSuiteId, projectId },
+      select: { id: true },
+    });
+    if (!suiteToConnect) {
+      throw new ApiError('Suite de pruebas no encontrada o no pertenece al proyecto', 404);
+    }
+  }
+
   // Calcular número correlativo para la HDU
   const lastHdu = await prisma.userStory.findFirst({
     orderBy: { hduNumber: 'desc' },
@@ -108,10 +135,18 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       acceptanceCriteria,
       priority: priority || 'MEDIUM',
       storyPoints,
+      definitionOfDone: Array.isArray(definitionOfDone) ? definitionOfDone : [],
+      technicalNotes: Array.isArray(technicalNotes) ? technicalNotes : [],
+      evidences: Array.isArray(evidences) ? evidences : [],
+      dependencies: Array.isArray(dependencies) ? dependencies : [],
       projectId,
       featureId,
       epicId: feature.epicId,
       userId: req.user!.id,
+      assignee: assignee || null,
+      labels: Array.isArray(labels) ? labels : [],
+      branchName: branchName || null,
+      ...(suiteToConnect ? { testSuite: { connect: { id: suiteToConnect.id } } } : {}),
       status: 'NEW',
       syncStatus: 'UNSYNCED',
       hduNumber: nextHduNumber,
@@ -121,6 +156,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       project: true,
       epic: true,
       feature: true,
+      testSuite: true,
     },
   });
 
@@ -179,6 +215,11 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   if (assignee !== undefined) updateData.assignee = assignee
   if (labels !== undefined) updateData.labels = { set: labels }
   if (branchName !== undefined) updateData.branchName = branchName
+
+  // Any local change to a GitHub-linked HDU must be explicitly pushed back to
+  // GitHub. Without this marker the UI reports the record as synchronized even
+  // though assignee, labels or branch metadata changed locally.
+  if (existingStory.externalSystem === 'GITHUB') updateData.syncStatus = 'UNSYNCED'
 
   // Vinculación de suite de pruebas: la relación es inversa (el FK userStoryId
   // vive en TestSuite), por lo que aquí se actualiza la suite: se desvincula la
@@ -763,7 +804,7 @@ router.get('/:id/playwright-spec', asyncHandler(async (req: AuthenticatedRequest
  * Usa `buildIssueBodyFromHdu` para construir el cuerpo Markdown y
  * `updateGitHubIssue` para hacer el PATCH en la API de GitHub.
  *
- * Body: { syncFields?: ('title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints')[] }
+ * Body: { syncFields?: ('title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints' | 'labels' | 'assignee' | 'branchName')[] }
  * Si no se especifican campos, se sincronizan todos.
  */
 router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -821,7 +862,7 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
   // Determinar qué campos sincronizar
   const fieldsToSync = syncFields && Array.isArray(syncFields) && syncFields.length > 0
     ? syncFields
-    : ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints', 'labels', 'assignee'];
+    : ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints', 'labels', 'assignee', 'branchName'];
 
   // Construir las actualizaciones para GitHub
   const updates: { title?: string; body?: string; labels?: string[]; assignees?: string[] } = {};
@@ -830,13 +871,15 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
   if (fieldsToSync.includes('description') ||
       fieldsToSync.includes('acceptanceCriteria') ||
       fieldsToSync.includes('priority') ||
-      fieldsToSync.includes('storyPoints')) {
+      fieldsToSync.includes('storyPoints') ||
+      fieldsToSync.includes('branchName')) {
     updates.body = issueBody;
   }
 
   // Sincronizar título si se solicita
   if (fieldsToSync.includes('title')) {
-    updates.title = userStory.title;
+    // El correlativo público del SaaS debe quedar visible al inicio del issue.
+    updates.title = buildGitHubHduTitle(userStory.displayId, userStory.title);
   }
 
   // Labels y asignación son propiedades nativas del issue de GitHub.
