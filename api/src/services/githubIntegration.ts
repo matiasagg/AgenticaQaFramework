@@ -665,9 +665,7 @@ export function buildIssueBodyFromHdu(hdu: {
   const lines: string[] = [];
 
   // Referencia al issue original (si existe)
-  if (hdu.githubUrl) {
-    lines.push(`🔗 Issue original: ${hdu.githubUrl}`);
-    lines.push('');
+  // The original issue reference is appended below when the description does not already contain it.
   }
 
   // ID de la HDU en el SaaS
