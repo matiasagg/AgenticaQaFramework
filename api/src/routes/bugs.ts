@@ -273,7 +273,7 @@ router.post('/:id/apply-dor-fixes', async (req: AuthenticatedRequest, res: Respo
       title: updateData.title ?? existingBug.title,
       description: updateData.description ?? existingBug.description,
       acceptanceCriteria: [
-        ...(updateData.stepsToReproduce?.set ?? existingBug.stepsToReproduce || []).map((step: string) => `Reproducir: ${step}`),
+        ...((updateData.stepsToReproduce?.set ?? existingBug.stepsToReproduce) || []).map((step: string) => `Reproducir: ${step}`),
         (updateData.expectedResult ?? existingBug.expectedResult) ? `Resultado esperado: ${updateData.expectedResult ?? existingBug.expectedResult}` : '',
         (updateData.actualResult ?? existingBug.actualResult) ? `Resultado actual: ${updateData.actualResult ?? existingBug.actualResult}` : '',
       ].filter(Boolean),
