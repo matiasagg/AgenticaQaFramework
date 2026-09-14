@@ -441,7 +441,7 @@ export default function BugList() {
                         Ver Detalle
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); validateBugDor(bug) }}
+                        onClick={(e) => { e.stopPropagation(); validateBugDor(bug.id) }}
                         className="ml-3 text-blue-600 hover:text-blue-800 dark:text-blue-400"
                       >
                         Analizar DoR
