@@ -154,11 +154,12 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
  * Actualiza una historia de usuario
  */
 router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, status, featureId } = req.body;
+  const { title, description, acceptanceCriteria, definitionOfDone, technicalNotes, evidences, dependencies, priority, storyPoints, status, featureId, testSuiteId, assignee, labels, branchName } = req.body;
 
   // Verificar que la HDU existe y pertenece al usuario
   const existingStory = await prisma.userStory.findFirst({
     where: { id: req.params.id, userId: req.user!.id },
+    include: { testSuite: { select: { id: true } } },
   });
   if (!existingStory) {
     throw new ApiError('Historia de usuario no encontrada', 404);
@@ -168,9 +169,44 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   if (title !== undefined) updateData.title = title
   if (description !== undefined) updateData.description = description
   if (acceptanceCriteria !== undefined) updateData.acceptanceCriteria = { set: acceptanceCriteria }
+  if (definitionOfDone !== undefined) updateData.definitionOfDone = { set: definitionOfDone }
+  if (technicalNotes !== undefined) updateData.technicalNotes = { set: technicalNotes }
+  if (evidences !== undefined) updateData.evidences = { set: evidences }
+  if (dependencies !== undefined) updateData.dependencies = { set: dependencies }
   if (priority !== undefined) updateData.priority = priority
   if (storyPoints !== undefined) updateData.storyPoints = storyPoints
   if (status !== undefined) updateData.status = status
+  if (assignee !== undefined) updateData.assignee = assignee
+  if (labels !== undefined) updateData.labels = { set: labels }
+  if (branchName !== undefined) updateData.branchName = branchName
+
+  // Vinculación de suite de pruebas: la relación es inversa (el FK userStoryId
+  // vive en TestSuite), por lo que aquí se actualiza la suite: se desvincula la
+  // suite actual y se asigna la nueva (si se especificó). La relación es 1:1
+  // (TestSuite.userStoryId es @unique), así que la nueva suite puede quedar
+  // libre o vinculada a otra HDU del mismo proyecto.
+  if (testSuiteId !== undefined) {
+    // Desvincular la suite actualmente asociada (si hay una distinta a la nueva)
+    if (existingStory.testSuite && existingStory.testSuite.id !== testSuiteId) {
+      await prisma.testSuite.update({
+        where: { id: existingStory.testSuite.id },
+        data: { userStoryId: null },
+      })
+    }
+
+    if (testSuiteId === null || testSuiteId === '') {
+      updateData.testSuite = { disconnect: true }
+    } else {
+      const suite = await prisma.testSuite.findFirst({
+        where: { id: testSuiteId, projectId: existingStory.projectId },
+        select: { id: true },
+      })
+      if (!suite) {
+        throw new ApiError('Suite de pruebas no encontrada o no pertenece al proyecto', 404)
+      }
+      updateData.testSuite = { connect: { id: testSuiteId } }
+    }
+  }
 
   if (featureId !== undefined) {
     if (!featureId) {
@@ -769,6 +805,13 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
     title: userStory.title,
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
+    definitionOfDone: userStory.definitionOfDone,
+    technicalNotes: userStory.technicalNotes,
+    evidences: userStory.evidences,
+    dependencies: userStory.dependencies,
+    assignee: userStory.assignee,
+    labels: userStory.labels,
+    branchName: userStory.branchName,
     priority: userStory.priority,
     storyPoints: userStory.storyPoints,
     displayId: userStory.displayId,
@@ -778,10 +821,10 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
   // Determinar qué campos sincronizar
   const fieldsToSync = syncFields && Array.isArray(syncFields) && syncFields.length > 0
     ? syncFields
-    : ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints'];
+    : ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints', 'labels', 'assignee'];
 
   // Construir las actualizaciones para GitHub
-  const updates: { title?: string; body?: string } = {};
+  const updates: { title?: string; body?: string; labels?: string[]; assignees?: string[] } = {};
 
   // Siempre sincronizar el body (contiene descripción, criterios, prioridad, story points)
   if (fieldsToSync.includes('description') ||
@@ -794,6 +837,14 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
   // Sincronizar título si se solicita
   if (fieldsToSync.includes('title')) {
     updates.title = userStory.title;
+  }
+
+  // Labels y asignación son propiedades nativas del issue de GitHub.
+  if (fieldsToSync.includes('labels')) {
+    updates.labels = userStory.labels;
+  }
+  if (fieldsToSync.includes('assignee')) {
+    updates.assignees = userStory.assignee ? [userStory.assignee] : [];
   }
 
   if (Object.keys(updates).length === 0) {

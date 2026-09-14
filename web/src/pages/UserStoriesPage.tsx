@@ -9,7 +9,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../services/api'
+import api, { githubSyncApi } from '../services/api'
 
 interface UserStory {
   id: string
@@ -19,6 +19,12 @@ interface UserStory {
   description: string
   acceptanceCriteria: string[]
   definitionOfDone?: string[]
+  technicalNotes?: string[]
+  evidences?: string[]
+  dependencies?: string[]
+  assignee?: string | null
+  labels?: string[]
+  branchName?: string | null
   priority: string
   storyPoints: number | null
   status: string
@@ -101,10 +107,53 @@ export default function UserStoriesPage() {
     description: '',
     acceptanceCriteria: [''],
     definitionOfDone: [''],
+    technicalNotes: [''],
+    evidences: [''],
+    dependencies: [''],
     priority: 'MEDIUM',
     storyPoints: 5,
   })
   const [savingHdu, setSavingHdu] = useState(false)
+  // Catálogos para los combos del modal DoR (features del proyecto de la HDU
+  // y suites de pruebas del proyecto, para vincularlas desde la edición).
+  const [editFeatures, setEditFeatures] = useState<any[]>([])
+  const [editSuites, setEditSuites] = useState<any[]>([])
+  const [editFeatureId, setEditFeatureId] = useState('')
+  const [editSuiteId, setEditSuiteId] = useState('')
+  const [editAssignee, setEditAssignee] = useState('')
+  const [editLabels, setEditLabels] = useState('')
+  const [editBranchName, setEditBranchName] = useState('')
+  const [editBranches, setEditBranches] = useState<string[]>([])
+  const [githubCollaborators, setGithubCollaborators] = useState<Array<{ login: string }>>([])
+
+  /**
+   * Actualiza un elemento de una de las listas editables del formulario
+   * (criterios, DoD, notas técnicas, evidencias, dependencias).
+   */
+  const updateListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number, value: string) => {
+    setEditFormData(prev => {
+      const list = [...(prev[field] as string[])]
+      list[index] = value
+      return { ...prev, [field]: list }
+    })
+  }
+
+  /**
+   * Elimina un elemento de una de las listas editables del formulario.
+   */
+  const removeListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number) => {
+    setEditFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] as string[]).filter((_, idx) => idx !== index),
+    }))
+  }
+
+  /**
+   * Agrega un elemento vacío al final de una de las listas editables.
+   */
+  const addListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies') => {
+    setEditFormData(prev => ({ ...prev, [field]: [...(prev[field] as string[]), ''] }))
+  }
 
   // Form state
   const [formData, setFormData] = useState({
@@ -116,6 +165,9 @@ export default function UserStoriesPage() {
     projectId: '',
     epicId: '',
     featureId: '',
+    assignee: '',
+    labels: '',
+    branchName: '',
   })
 
   useEffect(() => {
@@ -181,12 +233,28 @@ export default function UserStoriesPage() {
     }
   }
 
+  const fetchGithubOptions = async (projectId: string) => {
+    if (!projectId) return
+    try {
+      const [users, branchList] = await Promise.all([
+        githubSyncApi.getCollaborators(projectId),
+        githubSyncApi.getBranches(projectId),
+      ])
+      setGithubCollaborators(users.collaborators || [])
+      setEditBranches(branchList.branches || [])
+    } catch {
+      setGithubCollaborators([])
+      setEditBranches([])
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       await api.post('/user-stories', {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowForm(false)
       setFormData({
@@ -198,6 +266,9 @@ export default function UserStoriesPage() {
         projectId: projects[0]?.id || '',
         epicId: '',
         featureId: '',
+        assignee: '',
+        labels: '',
+        branchName: '',
       })
       fetchUserStories()
     } catch (error: any) {
@@ -269,6 +340,9 @@ export default function UserStoriesPage() {
       projectId: story.projectId,
       epicId: story.epicId || '',
       featureId: story.featureId || '',
+      assignee: story.assignee || '',
+      labels: (story.labels || []).join(', '),
+      branchName: story.branchName || '',
     })
     if (story.projectId) {
       fetchEpics(story.projectId).then(() => {
@@ -285,6 +359,7 @@ export default function UserStoriesPage() {
       await api.put(`/user-stories/${editingStory.id}`, {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowEditForm(false)
       setEditingStory(null)
@@ -316,19 +391,6 @@ export default function UserStoriesPage() {
   }
 
   /**
-   * Formatea el valor evaluado para mostrarlo en el reporte.
-   * Convierte arrays en listas legibles y maneja undefined.
-   */
-  const formatEvaluatedValue = (value: string | string[] | undefined): string => {
-    if (value === undefined || value === null) return '—'
-    if (Array.isArray(value)) {
-      if (value.length === 0) return '—'
-      return value.join(', ')
-    }
-    return value.length > 100 ? `${value.substring(0, 100)}...` : value
-  }
-
-  /**
    * Inicia la edición de la HDU desde el modal DoR.
    */
   const handleStartEdit = () => {
@@ -338,9 +400,34 @@ export default function UserStoriesPage() {
       description: selectedStory.description,
       acceptanceCriteria: selectedStory.acceptanceCriteria.length > 0 ? selectedStory.acceptanceCriteria : [''],
       definitionOfDone: selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 ? selectedStory.definitionOfDone : [''],
+      technicalNotes: selectedStory.technicalNotes && selectedStory.technicalNotes.length > 0 ? selectedStory.technicalNotes : [''],
+      evidences: selectedStory.evidences && selectedStory.evidences.length > 0 ? selectedStory.evidences : [''],
+      dependencies: selectedStory.dependencies && selectedStory.dependencies.length > 0 ? selectedStory.dependencies : [''],
       priority: selectedStory.priority,
       storyPoints: selectedStory.storyPoints || 5,
     })
+    // Precargar asignación, labels y rama
+    setEditAssignee(selectedStory.assignee || '')
+    setEditLabels((selectedStory.labels || []).join(', '))
+    setEditBranchName(selectedStory.branchName || '')
+    // Precargar los combos de feature y suite con los valores actuales
+    setEditFeatureId(selectedStory.featureId || '')
+    setEditSuiteId(selectedStory.testSuite?.id || '')
+    // Cargar features del proyecto y suites del proyecto para los combos
+    if (selectedStory.projectId) {
+      api.get('/features', { params: { projectId: selectedStory.projectId } })
+        .then((res) => setEditFeatures(res.data.features || []))
+        .catch(() => setEditFeatures([]))
+      api.get(`/github-sync/${selectedStory.projectId}/branches`)
+        .then((res) => setEditBranches(res.data.branches || []))
+        .catch(() => setEditBranches([]))
+      githubSyncApi.getCollaborators(selectedStory.projectId)
+        .then((res) => setGithubCollaborators(res.collaborators || []))
+        .catch(() => setGithubCollaborators([]))
+    }
+    api.get('/test-suites', { params: { projectId: selectedStory.projectId } })
+      .then((res) => setEditSuites(res.data.suites || []))
+      .catch(() => setEditSuites([]))
     setIsEditing(true)
   }
 
@@ -356,8 +443,16 @@ export default function UserStoriesPage() {
         description: editFormData.description,
         acceptanceCriteria: editFormData.acceptanceCriteria.filter(c => c.trim() !== ''),
         definitionOfDone: editFormData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: editFormData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: editFormData.evidences.filter(c => c.trim() !== ''),
+        dependencies: editFormData.dependencies.filter(c => c.trim() !== ''),
         priority: editFormData.priority,
         storyPoints: editFormData.storyPoints,
+        featureId: editFeatureId || undefined,
+        testSuiteId: editSuiteId === '' ? null : editSuiteId,
+        assignee: editAssignee,
+        labels: editLabels.split(',').map(l => l.trim()).filter(l => l !== ''),
+        branchName: editBranchName,
       })
       setIsEditing(false)
       // Revalidar con los nuevos datos
@@ -376,7 +471,7 @@ export default function UserStoriesPage() {
   const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
     setApplyingFix(storyId)
     try {
-      const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
+      await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
         fixes: [fix]
       })
       // Recargar la validación para reflejar los cambios
@@ -493,6 +588,7 @@ export default function UserStoriesPage() {
                       const projectId = e.target.value
                       setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
                       if (projectId) await fetchEpics(projectId)
+                      if (projectId) await fetchGithubOptions(projectId)
                     }}
                     className="input-field"
                     required
@@ -636,6 +732,16 @@ export default function UserStoriesPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select className="input-field" value={formData.assignee} onChange={(e) => setFormData(prev => ({ ...prev, assignee: e.target.value }))}>
+                  <option value="">Sin asignar</option>
+                  {githubCollaborators.map(user => <option key={user.login} value={user.login}>{user.login}</option>)}
+                </select>
+                <input className="input-field" placeholder="Labels separados por coma" value={formData.labels} onChange={(e) => setFormData(prev => ({ ...prev, labels: e.target.value }))} />
+                <input className="input-field" list="hdu-github-branches" placeholder="Rama" value={formData.branchName} onChange={(e) => setFormData(prev => ({ ...prev, branchName: e.target.value }))} />
+                <datalist id="hdu-github-branches">{editBranches.map(branch => <option key={branch} value={branch} />)}</datalist>
+              </div>
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
@@ -767,6 +873,23 @@ export default function UserStoriesPage() {
                         </ul>
                       </div>
                     )}
+                    {[
+                      { label: 'Notas Técnicas:', items: selectedStory.technicalNotes },
+                      { label: 'Evidencias:', items: selectedStory.evidences },
+                      { label: 'Dependencias:', items: selectedStory.dependencies },
+                    ].map(({ label, items }) => items && items.length > 0 && (
+                      <div key={label}>
+                        <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {items.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -811,10 +934,71 @@ export default function UserStoriesPage() {
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs font-medium text-gray-500">Prioridad</label>
-                        <select
-                          value={editFormData.priority}
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Feature</label>
+                      <select
+                        value={editFeatureId}
+                        onChange={(e) => setEditFeatureId(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin feature...</option>
+                        {editFeatures.map((f) => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Suite de pruebas</label>
+                      <select
+                        value={editSuiteId}
+                        onChange={(e) => setEditSuiteId(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin suite...</option>
+                        {editSuites.map((s) => (
+                          <option key={s.id} value={s.id}>{s.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Asignado a</label>
+                      <select
+                        value={editAssignee}
+                        onChange={(e) => setEditAssignee(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin asignar</option>
+                        {githubCollaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Labels (coma)</label>
+                      <input
+                        type="text"
+                        value={editLabels}
+                        onChange={(e) => setEditLabels(e.target.value)}
+                        placeholder="frontend, p1, qa"
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Rama</label>
+                      <input
+                        type="text"
+                        list="github-branches"
+                        value={editBranchName}
+                        onChange={(e) => setEditBranchName(e.target.value)}
+                        placeholder="Selecciona o escribe una rama"
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                      <datalist id="github-branches">
+                        {editBranches.map((branch) => <option key={branch} value={branch} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Prioridad</label>
+                      <select
+                        value={editFormData.priority}
                           onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
                           className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         >
@@ -900,6 +1084,38 @@ export default function UserStoriesPage() {
                         + Agregar criterio DoD
                       </button>
                     </div>
+                    {([
+                      { field: 'technicalNotes' as const, label: 'Notas Técnicas', placeholder: 'Nota técnica' },
+                      { field: 'evidences' as const, label: 'Evidencias', placeholder: 'Link / captura / log' },
+                      { field: 'dependencies' as const, label: 'Dependencias', placeholder: 'Issue / servicio / equipo' },
+                    ]).map(({ field, label, placeholder }) => (
+                      <div key={field}>
+                        <label className="text-xs font-medium text-gray-500">{label}</label>
+                        {editFormData[field].map((c, i) => (
+                          <div key={i} className="flex gap-1 mt-1">
+                            <input
+                              type="text"
+                              value={c}
+                              onChange={(e) => updateListItem(field, i, e.target.value)}
+                              className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              placeholder={placeholder}
+                            />
+                            <button
+                              onClick={() => removeListItem(field, i)}
+                              className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => addListItem(field)}
+                          className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                        >
+                          + Agregar {label.toLowerCase()}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

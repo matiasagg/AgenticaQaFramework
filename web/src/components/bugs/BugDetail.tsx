@@ -5,9 +5,11 @@ interface BugDetailProps {
   onBack: () => void
   onEdit?: (bug: Bug) => void
   onDelete?: (bug: Bug) => void
+  onValidateDor?: (bug: Bug) => void
+  dorResult?: any
 }
 
-export default function BugDetail({ bug, onBack, onEdit, onDelete }: BugDetailProps) {
+export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult }: BugDetailProps) {
   const getSeverityColor = (severity: string): string => {
     const colors: Record<string, string> = {
       CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
@@ -65,6 +67,14 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete }: BugDetailPr
           </span>
         </div>
       </div>
+
+      {dorResult && (
+        <div className="card">
+          <h2 className="text-lg font-semibold mb-3">Análisis DoR</h2>
+          <p className="mb-3">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
+          <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -216,6 +226,9 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete }: BugDetailPr
             <div className="space-y-2">
               <button className="btn-primary w-full" onClick={() => onEdit?.(bug)}>
                 Editar Bug
+              </button>
+              <button className="btn-secondary w-full" onClick={() => onValidateDor?.(bug)}>
+                Analizar DoR
               </button>
               <button className="btn-secondary w-full" onClick={() => onBack()}>
                 Volver a lista

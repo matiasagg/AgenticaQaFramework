@@ -14,6 +14,9 @@ import {
   parseRepoUrl,
   mapIssueToUserStory,
   buildIssueDescription,
+  extractDefinitionOfDone,
+  extractStoryPoints,
+  cleanIssueDescription,
   fetchIssues,
   fetchBranches,
   fetchPullRequests,
@@ -238,6 +241,86 @@ describe('githubIntegration service', () => {
       const mapped = mapIssueToUserStory(issue)
       expect(mapped.description).toBe('Issue with no body')
       expect(mapped.acceptanceCriteria).toEqual([])
+    })
+
+    it('should extract Definition of Done criteria from a "Definition of Done" section', () => {
+      const body = `
+        Historia con DoD.
+
+        ## Definition of Done
+        - Preview y aplicación confirmadas en backend y frontend
+        - [x] Pruebas automatizadas pasando
+        - Auditoría y validaciones de autorización implementadas
+      `
+      const issue: GitHubIssue = {
+        id: 9, number: 8, title: 'Feature con DoD', body, state: 'open', labels: [],
+        html_url: 'https://github.com/owner/repo/issues/8',
+        created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z',
+      }
+
+      const mapped = mapIssueToUserStory(issue)
+      expect(mapped.definitionOfDone).toHaveLength(3)
+      expect(mapped.definitionOfDone).toContain('Pruebas automatizadas pasando')
+    })
+
+    it('should extract story points declared in the body', () => {
+      const body = 'Descripción...\n- **Story Points:** 5\n'
+      expect(extractStoryPoints(body)).toBe(5)
+      expect(extractStoryPoints('sin puntos')).toBeNull()
+    })
+
+    it('should remove acceptance criteria, DoD and metadata sections from the description', () => {
+      const body = [
+        '## Historia de Usuario',
+        'Como QA quiero validar DoR.',
+        '',
+        '## Criterios de Aceptación',
+        '- Criterio uno',
+        '- Criterio dos',
+        '',
+        '## Definition of Done',
+        '- DoD uno',
+        '',
+        '## Metadatos',
+        '- **Prioridad:** Alta',
+        '- **Story Points:** 5',
+      ].join('\n')
+
+      const cleaned = cleanIssueDescription(body)
+      expect(cleaned).toContain('Como QA quiero validar DoR.')
+      expect(cleaned).not.toContain('Criterio uno')
+      expect(cleaned).not.toContain('DoD uno')
+      expect(cleaned).not.toContain('Prioridad')
+      expect(cleaned).not.toContain('Story Points')
+    })
+
+    it('should map definitionOfDone and storyPoints via mapIssueToUserStory', () => {
+      const body = [
+        'Descripción principal.',
+        '',
+        '## Criterios de Aceptación',
+        '- CA uno',
+        '',
+        '## Definition of Done',
+        '- DoD uno',
+        '',
+        '## Metadatos',
+        '- **Story Points:** 8',
+      ].join('\n')
+      const issue: GitHubIssue = {
+        id: 10, number: 9, title: 'HDU completa', body, state: 'open', labels: [],
+        html_url: 'https://github.com/owner/repo/issues/9',
+        created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z',
+      }
+
+      const mapped = mapIssueToUserStory(issue)
+      expect(mapped.acceptanceCriteria).toEqual(['CA uno'])
+      expect(mapped.definitionOfDone).toEqual(['DoD uno'])
+      expect(mapped.storyPoints).toBe(8)
+      // La descripción no debe contener las secciones estructuradas
+      expect(mapped.description).not.toContain('CA uno')
+      expect(mapped.description).not.toContain('DoD uno')
+      expect(mapped.description).toContain('Descripción principal.')
     })
 
     it('should keep the real GitHub issue description and append the original link once', () => {

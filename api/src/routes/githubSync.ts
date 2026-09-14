@@ -14,6 +14,7 @@ import { ApiError } from '../middleware/errorHandler';
 import {
   fetchIssues,
   fetchBranches,
+  fetchCollaborators,
   fetchPullRequests,
   mapIssueToUserStory,
   mapIssueToBugReport,
@@ -227,6 +228,9 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           stepsToReproduce: bugMapped.stepsToReproduce,
           expectedResult: bugMapped.expectedResult,
           actualResult: bugMapped.actualResult,
+          assignee: bugMapped.assignee,
+          labels: bugMapped.labels,
+          ...(bugMapped.branchName !== null ? { branchName: bugMapped.branchName } : {}),
         },
       });
       synced.push({ id: bug.id, issueNumber: issue.number, type: 'BUG' });
@@ -245,6 +249,14 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           title: mapped.title,
           description: buildIssueDescription(mapped.description, mapped.githubUrl),
           acceptanceCriteria: mapped.acceptanceCriteria,
+          definitionOfDone: mapped.definitionOfDone,
+          technicalNotes: mapped.technicalNotes,
+          evidences: mapped.evidences,
+          dependencies: mapped.dependencies,
+          storyPoints: mapped.storyPoints,
+          labels: mapped.labels,
+          assignee: mapped.assignee,
+          ...(mapped.branchName !== null ? { branchName: mapped.branchName } : {}),
           priority: mapped.priority as any,
           syncStatus: 'SYNCED',
           syncMetadata: {
@@ -396,6 +408,9 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
             userId: req.user!.id,
             githubId: externalId,
             status: 'OPEN',
+            assignee: bugMapped.assignee,
+            labels: bugMapped.labels,
+            branchName: bugMapped.branchName,
           },
         });
 
@@ -426,6 +441,14 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
           title: normalizedTitle,
           description: descriptionWithRef,
           acceptanceCriteria: mapped.acceptanceCriteria,
+          definitionOfDone: mapped.definitionOfDone,
+          technicalNotes: mapped.technicalNotes,
+          evidences: mapped.evidences,
+          dependencies: mapped.dependencies,
+          storyPoints: mapped.storyPoints,
+          labels: mapped.labels,
+          assignee: mapped.assignee,
+          branchName: mapped.branchName,
           priority: mapped.priority as any,
           projectId: project.id,
           userId: req.user!.id,
@@ -486,6 +509,18 @@ router.get('/:projectId/branches', asyncHandler(async (req: AuthenticatedRequest
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const branches = await fetchBranches(project.repository, token);
   res.json({ branches });
+}));
+
+/** GET /api/github-sync/:projectId/collaborators */
+router.get('/:projectId/collaborators', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.projectId, userId: req.user!.id },
+  });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+  if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const collaborators = await fetchCollaborators(project.repository, token);
+  res.json({ collaborators });
 }));
 
 /**

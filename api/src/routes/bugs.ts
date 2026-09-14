@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
+import { validateDoR } from '../services/dorValidator';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -25,11 +26,11 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 // POST /api/bugs - Create bug report
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { title, description, severity, stepsToReproduce, expectedResult, actualResult, environment, projectId, agentId } = req.body;
+    const { title, description, severity, stepsToReproduce, expectedResult, actualResult, environment, projectId, agentId, assignee, labels, branchName } = req.body;
     const bug = await prisma.bugReport.create({
       data: {
         title, description, severity, stepsToReproduce, expectedResult, actualResult, environment,
-        projectId, agentId, userId: req.user!.id,
+        projectId, agentId, userId: req.user!.id, assignee, labels: labels || [], branchName,
       },
     });
     res.status(201).json({ bug });
@@ -56,10 +57,10 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
 // PUT /api/bugs/:id - Update bug
 router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { title, description, severity, status, stepsToReproduce, expectedResult, actualResult, environment, assignee } = req.body;
+    const { title, description, severity, status, stepsToReproduce, expectedResult, actualResult, environment, assignee, labels, branchName } = req.body;
     const bug = await prisma.bugReport.updateMany({
       where: { id: req.params.id, userId: req.user!.id },
-      data: { title, description, severity, status, stepsToReproduce, expectedResult, actualResult, environment, assignee },
+      data: { title, description, severity, status, stepsToReproduce, expectedResult, actualResult, environment, assignee, labels, branchName },
     });
     if (bug.count === 0) throw new ApiError('Bug not found', 404);
     const updatedBug = await prisma.bugReport.findUnique({ where: { id: req.params.id }, include: { evidence: true } });
@@ -67,6 +68,40 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response) => {
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError('Failed to update bug', 500);
+  }
+});
+
+// POST /api/bugs/:id/validate-dor - Un bug usa los mismos criterios base que una HDU
+router.post('/:id/validate-dor', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const bug = await prisma.bugReport.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
+    if (!bug) throw new ApiError('Bug not found', 404);
+
+    const validation = validateDoR({
+      title: bug.title,
+      description: bug.description,
+      acceptanceCriteria: [
+        ...(bug.stepsToReproduce || []).map((step) => `Reproducir: ${step}`),
+        bug.expectedResult ? `Resultado esperado: ${bug.expectedResult}` : '',
+        bug.actualResult ? `Resultado actual: ${bug.actualResult}` : '',
+      ].filter(Boolean),
+      priority: bug.severity,
+      storyPoints: 1,
+    });
+    const updatedBug = await prisma.bugReport.update({
+      where: { id: bug.id },
+      data: {
+        dorScore: validation.score,
+        dorChecklist: JSON.parse(JSON.stringify(validation.checklist)),
+        isReady: validation.isReady,
+        staticAnalysis: JSON.parse(JSON.stringify({ ...validation, validatedAt: new Date().toISOString() })),
+      },
+      include: { evidence: true, project: true, agent: true },
+    });
+    res.json({ bug: updatedBug, validation });
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Failed to validate bug DoR', 500);
   }
 });
 

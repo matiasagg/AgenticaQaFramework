@@ -11,7 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "repair:hdu-ids": "ts-node scripts/migrate-hdu-ids.ts"
+    "repair:hdu-ids": "ts-node scripts/migrate-hdu-ids.ts",
+    "backfill:enriched": "ts-node scripts/backfill-hdu-enriched-fields.ts"
   },
   "keywords": [
     "qa",

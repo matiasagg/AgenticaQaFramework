@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Bug, Severity, BugStatus } from '../../types'
-import { bugsApi, projectsApi } from '../../services/api'
+import { bugsApi, githubSyncApi, projectsApi } from '../../services/api'
 import BugDetail from './BugDetail'
 
 interface Filters {
@@ -17,7 +17,10 @@ export default function BugList() {
   const [showCreate, setShowCreate] = useState(false)
   const [createData, setCreateData] = useState<any>({ title: '', description: '', severity: 'MEDIUM', stepsToReproduce: [], expectedResult: '', actualResult: '', projectId: '' })
   const [projects, setProjects] = useState<any[]>([])
+  const [collaborators, setCollaborators] = useState<Array<{ login: string }>>([])
+  const [branches, setBranches] = useState<string[]>([])
   const [editingBug, setEditingBug] = useState<Bug | null>(null)
+  const [dorResult, setDorResult] = useState<any>(null)
   const [filters, setFilters] = useState<Filters>({
     severity: '',
     status: '',
@@ -38,6 +41,31 @@ export default function BugList() {
       }
     } catch (err) {
       console.error('Error loading projects', err)
+    }
+  }
+
+  const loadGithubOptions = async (projectId: string) => {
+    if (!projectId) return
+    try {
+      const [users, branchList] = await Promise.all([
+        githubSyncApi.getCollaborators(projectId),
+        githubSyncApi.getBranches(projectId),
+      ])
+      setCollaborators(users.collaborators || [])
+      setBranches(branchList.branches || [])
+    } catch {
+      setCollaborators([])
+      setBranches([])
+    }
+  }
+
+  const validateBugDor = async (bug: Bug) => {
+    try {
+      const response = await bugsApi.validateDor(bug.id)
+      setDorResult(response)
+      await fetchBugs()
+    } catch (err: any) {
+      alert(err?.response?.data?.error?.message || 'Error al validar el DoR del bug')
     }
   }
 
@@ -119,12 +147,16 @@ export default function BugList() {
       actualResult: bug.actualResult || '',
       environment: bug.environment || '',
       projectId: bug.projectId,
+      assignee: bug.assignee || '',
+      labels: bug.labels || [],
+      branchName: bug.branchName || '',
     })
+    loadGithubOptions(bug.projectId)
     setShowCreate(true)
   }
 
   if (selectedBug) {
-    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} onEdit={openEdit} onDelete={handleDelete} />
+    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} onEdit={openEdit} onDelete={handleDelete} onValidateDor={validateBugDor} dorResult={dorResult} />
   }
 
   return (
@@ -134,7 +166,7 @@ export default function BugList() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
           Bug Reports
         </h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
+        <button className="btn-primary" onClick={() => { setEditingBug(null); setCreateData((p: any) => ({ ...p, labels: [], assignee: '', branchName: '' })); setShowCreate(true); loadGithubOptions(createData.projectId || projects[0]?.id) }}>
           + Nuevo Bug
         </button>
       </div>
@@ -290,6 +322,12 @@ export default function BugList() {
                       >
                         Ver Detalle
                       </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); validateBugDor(bug) }}
+                        className="ml-3 text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                      >
+                        Analizar DoR
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -308,7 +346,7 @@ export default function BugList() {
               <button onClick={() => setShowCreate(false)} className="p-2">✕</button>
             </div>
             <div className="p-6 space-y-3">
-              <select className="input-field" value={createData.projectId || ''} onChange={(e) => setCreateData({ ...createData, projectId: e.target.value })}>
+              <select className="input-field" value={createData.projectId || ''} onChange={(e) => { setCreateData({ ...createData, projectId: e.target.value }); loadGithubOptions(e.target.value) }}>
                 <option value="">Seleccionar proyecto...</option>
                 {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
@@ -320,6 +358,13 @@ export default function BugList() {
                 <option value="MEDIUM">Media</option>
                 <option value="LOW">Baja</option>
               </select>
+              <select className="input-field" value={createData.assignee || ''} onChange={(e) => setCreateData({ ...createData, assignee: e.target.value })}>
+                <option value="">Sin asignar</option>
+                {collaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
+              </select>
+              <input className="input-field" placeholder="Labels separados por coma" value={(createData.labels || []).join(', ')} onChange={(e) => setCreateData({ ...createData, labels: e.target.value.split(',').map((label: string) => label.trim()).filter(Boolean) })} />
+              <input className="input-field" list="bug-github-branches" placeholder="Rama" value={createData.branchName || ''} onChange={(e) => setCreateData({ ...createData, branchName: e.target.value })} />
+              <datalist id="bug-github-branches">{branches.map((branch) => <option key={branch} value={branch} />)}</datalist>
               <div className="flex justify-end gap-2">
                 <button className="btn-ghost" onClick={() => { setShowCreate(false); setEditingBug(null); }}>Cancelar</button>
                 <button className="btn-primary" onClick={async () => {
@@ -332,12 +377,18 @@ export default function BugList() {
                         expectedResult: createData.expectedResult,
                         actualResult: createData.actualResult,
                         environment: createData.environment,
+                        assignee: createData.assignee,
+                        labels: createData.labels || [],
+                        branchName: createData.branchName || '',
                       })
                     } else {
                       await bugsApi.create({
                         ...createData,
                         projectId: createData.projectId || projects[0]?.id || '',
                         stepsToReproduce: createData.stepsToReproduce || [],
+                        assignee: createData.assignee,
+                        labels: createData.labels || [],
+                        branchName: createData.branchName || '',
                       })
                     }
                     setShowCreate(false)
@@ -350,6 +401,16 @@ export default function BugList() {
                 }}>{editingBug ? 'Guardar' : 'Crear'}</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {dorResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6">
+            <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Análisis DoR del Bug</h2><button onClick={() => setDorResult(null)}>✕</button></div>
+            <p className="mb-4">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
+            <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
           </div>
         </div>
       )}

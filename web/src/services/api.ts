@@ -110,6 +110,11 @@ export const bugsApi = {
     return response.data
   },
 
+  validateDor: async (id: string) => {
+    const response = await api.post(`/bugs/${id}/validate-dor`)
+    return response.data
+  },
+
   create: async (data: {
     title: string
     description: string
@@ -119,6 +124,9 @@ export const bugsApi = {
     actualResult: string
     environment?: string
     projectId: string
+    assignee?: string
+    labels?: string[]
+    branchName?: string
   }) => {
     const response = await api.post('/bugs', data)
     return response.data
@@ -134,6 +142,8 @@ export const bugsApi = {
     actualResult: string
     environment: string
     assignee: string
+    labels: string[]
+    branchName: string
   }>) => {
     const response = await api.put(`/bugs/${id}`, data)
     return response.data
@@ -310,6 +320,11 @@ export const githubSyncApi = {
 
   getBranches: async (projectId: string) => {
     const response = await api.get(`/github-sync/${projectId}/branches`)
+    return response.data
+  },
+
+  getCollaborators: async (projectId: string) => {
+    const response = await api.get(`/github-sync/${projectId}/collaborators`)
     return response.data
   },
 

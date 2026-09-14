@@ -1,0 +1,7 @@
+ALTER TABLE "BugReport"
+  ADD COLUMN "labels" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "branchName" TEXT,
+  ADD COLUMN "dorScore" INTEGER,
+  ADD COLUMN "dorChecklist" JSONB,
+  ADD COLUMN "isReady" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN "staticAnalysis" JSONB;
