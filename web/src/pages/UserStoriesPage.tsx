@@ -535,7 +535,7 @@ export default function UserStoriesPage() {
     // intentionally skips unchanged issues, but these fields may have been
     // added locally after the issue was imported.
     let storyToEdit = selectedStory
-    if (selectedStory.externalSystem === 'GITHUB' && selectedStory.externalId) {
+    if (selectedStory.externalSystem === 'GITHUB' && selectedStory.externalId && selectedStory.syncStatus !== 'UNSYNCED') {
       try {
         await api.post(`/github-sync/${selectedStory.projectId}/sync`, {
           issueNumbers: [Number(selectedStory.externalId)],
