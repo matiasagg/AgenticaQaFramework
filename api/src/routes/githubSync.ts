@@ -320,7 +320,11 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const allIssues = await fetchIssues(project.repository, 'all', token);
-  const toImport = allIssues.filter((i) => issueNumbers.includes(i.number));
+  // El correlativo del SaaS debe seguir el orden histórico de GitHub:
+  // issue más antiguo primero, independientemente del orden de la API.
+  const toImport = allIssues
+    .filter((i) => issueNumbers.includes(i.number))
+    .sort((left, right) => left.number - right.number);
 
   if (toImport.length === 0) {
     throw new ApiError('No se encontraron issues con esos números', 404);
