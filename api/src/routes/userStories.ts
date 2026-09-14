@@ -216,6 +216,9 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   if (labels !== undefined) updateData.labels = { set: labels }
   if (branchName !== undefined) updateData.branchName = branchName
 
+  // Cualquier cambio en los datos de la HDU invalida el análisis DoR anterior.
+  updateData.staticAnalysis = null
+
   // Any local change to a GitHub-linked HDU must be explicitly pushed back to
   // GitHub. Without this marker the UI reports the record as synchronized even
   // though assignee, labels or branch metadata changed locally.
@@ -335,7 +338,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
-    storyPoints: userStory.storyPoints || undefined,
+    storyPoints: userStory.storyPoints ?? undefined,
   });
 
   // ── Modo caché: devolver el análisis persistido si existe ──
@@ -371,7 +374,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
-    storyPoints: userStory.storyPoints || undefined,
+    storyPoints: userStory.storyPoints ?? undefined,
   };
 
   // Ejecutar validación DoR estática
@@ -576,6 +579,8 @@ router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedReques
   updateData.dorChecklist = JSON.parse(JSON.stringify(validationResult.checklist));
   updateData.isReady = validationResult.isReady;
   updateData.qualityScore = validationResult.score;
+  // Invalidar el análisis IA anterior: los datos evaluados ya cambiaron.
+  updateData.staticAnalysis = null;
 
   const updatedStory = await prisma.userStory.update({
     where: { id: req.params.id },

@@ -111,7 +111,7 @@ export function validateDoR(userStory: UserStoryInput): DorValidationResult {
   }
 
   // 2. Validar descripción con formato estándar
-  const descriptionCheck = validateDescription(userStory.description);
+  const descriptionCheck = validateDescription(userStory.description, userStory.title);
   checklist.push(descriptionCheck);
   if (!descriptionCheck.passed && descriptionCheck.suggestion) {
     recommendations.push(descriptionCheck.suggestion);
@@ -205,7 +205,7 @@ function validateTitle(title: string): DorCheckItem {
   const maxLength = 100;
   const hasMinLength = title.length >= minLength;
   const hasValidLength = title.length <= maxLength;
-  const isDescriptive = !/^(feature|bug|task|story)\s*$/i.test(title.trim());
+  const isDescriptive = !/^(feature|bug|task|story)(?:\s+(?:task|story|hdu|item))?\s*$/i.test(title.trim());
 
   const passed = hasMinLength && hasValidLength && isDescriptive;
 
@@ -259,20 +259,20 @@ function normalizeDescriptionText(raw: string): string {
  *    **Quiero** [acción]
  *    **Para** [beneficio]"
  */
-function validateDescription(description: string): DorCheckItem {
+function validateDescription(description: string, title = ''): DorCheckItem {
   // Normalizamos el texto para tolerar Markdown y descripciones multilínea
   const normalizedDescription = normalizeDescriptionText(description);
 
   // Formato en español: "Como ..., quiero ..., para ..."
-  const formatRegex = /como\s+.+?,\s*quiero\s+.+?,\s*para\s+.+/i;
+  const formatRegex = /como\s+.+?\s*,?\s*quiero\s+.+?\s*,?\s*para\s+.+/i;
   // Formato en inglés: "As ..., I want ..., so that ..."
-  const altFormatRegex = /as\s+.+?,\s*i\s+want\s+.+?,\s*so\s+that\s+.+/i;
+  const altFormatRegex = /as\s+.+?\s*,?\s*i\s+want\s+.+?\s*,?\s*so\s+that\s+.+/i;
 
   // La HDU de GitHub puede incluir los formatos como headers separados:
   // "**ID:** ...", "**Prioridad:** ..." antes de llegar a la parte **Como**.
   // Con la normalización los saltos y negritas ya fueron resueltos.
   const hasFormat = formatRegex.test(normalizedDescription) || altFormatRegex.test(normalizedDescription);
-  const minLength = description.length >= 25;
+  const minLength = description.length >= 50;
 
   const passed = hasFormat && minLength;
 
@@ -286,7 +286,10 @@ function validateDescription(description: string): DorCheckItem {
     evaluatedValue: description,
     // Fix determinable: si falla sólo por formato, ofrecemos una plantilla base
     suggestedFix: !passed && !hasFormat
-      ? { field: 'description', value: `Como [rol], quiero ${description || '[acción]'}, para [beneficio]` }
+      ? {
+          field: 'description',
+          value: `Como usuario QA, quiero ${title.trim().toLowerCase() || '[acción específica]'}, para poder validar el resultado esperado y entregar valor al usuario.`,
+        }
       : undefined,
     suggestion: passed ? undefined :
       !hasFormat
@@ -441,15 +444,13 @@ function validateNoAmbiguity(description: string): DorCheckItem {
  */
 function validateTestableCriteria(criteria: string[]): DorCheckItem {
   const testableKeywords = [
-    // Verbos modales en español/inglés
-    'debe', 'debería', 'deberá', 'should', 'must', 'will',
     // Verbos de verificación
     'verificar', 'comprobar', 'validar', 'check', 'verify',
     // Verbos de acción/resultado observable
     'mostrar', 'muestra', 'muestre', 'presentar', 'desplegar', 'display',
     'generar', 'genera', 'genere', 'crear', 'crea', 'retornar', 'return',
     'enviar', 'envía', 'envie', 'send', 'listar', 'lista', 'listar',
-    'actualiza', 'actualizar', 'permita', 'permitir', 'permite',
+    'actualiza', 'actualizar', 'permita', 'permitir', 'permite', 'puede',
     'enviar', 'envía', 'recibir', 'recibe', 'cargar', 'descargar',
   ];
 

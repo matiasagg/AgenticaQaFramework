@@ -102,7 +102,17 @@ export default function UserStoriesPage() {
   const [applyingFix, setApplyingFix] = useState<string | null>(null)
   const [pushingHdu, setPushingHdu] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
-  const [editFormData, setEditFormData] = useState({
+  const [editFormData, setEditFormData] = useState<{
+    title: string
+    description: string
+    acceptanceCriteria: string[]
+    definitionOfDone: string[]
+    technicalNotes: string[]
+    evidences: string[]
+    dependencies: string[]
+    priority: string
+    storyPoints: number | null
+  }>({
     title: '',
     description: '',
     acceptanceCriteria: [''],
@@ -111,7 +121,7 @@ export default function UserStoriesPage() {
     evidences: [''],
     dependencies: [''],
     priority: 'MEDIUM',
-    storyPoints: 5,
+    storyPoints: null,
   })
   const [savingHdu, setSavingHdu] = useState(false)
   // Catálogos para los combos del modal DoR (features del proyecto de la HDU
@@ -548,7 +558,7 @@ export default function UserStoriesPage() {
       evidences: storyToEdit.evidences && storyToEdit.evidences.length > 0 ? storyToEdit.evidences : [''],
       dependencies: storyToEdit.dependencies && storyToEdit.dependencies.length > 0 ? storyToEdit.dependencies : [''],
       priority: storyToEdit.priority,
-      storyPoints: storyToEdit.storyPoints || 5,
+      storyPoints: storyToEdit.storyPoints ?? null,
     })
     // Precargar asignación, labels y rama
     setEditAssignee(storyToEdit.assignee || '')
@@ -615,9 +625,13 @@ export default function UserStoriesPage() {
   const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
     setApplyingFix(storyId)
     try {
-      await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
+      const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
         fixes: [fix]
       })
+      // Reflejar inmediatamente los campos aplicados en la columna izquierda
+      // del modal, antes de ejecutar el análisis completo con IA.
+      if (response.data.userStory) setSelectedStory(response.data.userStory)
+      if (response.data.validation) setValidationResult(response.data.validation)
       // Recargar la validación para reflejar los cambios
       await handleValidateDor(storyId, true)
       alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
@@ -1159,10 +1173,11 @@ export default function UserStoriesPage() {
                       <div>
                         <label className="text-xs font-medium text-gray-500">Story Points</label>
                         <select
-                          value={editFormData.storyPoints}
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, storyPoints: Number(e.target.value) }))}
+                          value={editFormData.storyPoints ?? ''}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, storyPoints: e.target.value ? Number(e.target.value) : null }))}
                           className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         >
+                          <option value="">Sin definir</option>
                           {[1, 2, 3, 5, 8, 13, 21].map(p => (
                             <option key={p} value={p}>{p}</option>
                           ))}
