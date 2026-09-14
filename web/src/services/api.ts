@@ -110,8 +110,13 @@ export const bugsApi = {
     return response.data
   },
 
-  validateDor: async (id: string) => {
-    const response = await api.post(`/bugs/${id}/validate-dor`)
+  validateDor: async (id: string, refresh = false) => {
+    const response = await api.post(`/bugs/${id}/validate-dor${refresh ? '?refresh=true' : ''}`)
+    return response.data
+  },
+
+  applyDorFixes: async (id: string, fixes: Array<{ field: string; value: string | string[] | number }>) => {
+    const response = await api.post(`/bugs/${id}/apply-dor-fixes`, { fixes })
     return response.data
   },
 

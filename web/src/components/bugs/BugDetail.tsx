@@ -5,7 +5,7 @@ interface BugDetailProps {
   onBack: () => void
   onEdit?: (bug: Bug) => void
   onDelete?: (bug: Bug) => void
-  onValidateDor?: (bug: Bug) => void
+  onValidateDor?: (bugId: string, refresh?: boolean) => void
   dorResult?: any
 }
 
@@ -227,7 +227,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
               <button className="btn-primary w-full" onClick={() => onEdit?.(bug)}>
                 Editar Bug
               </button>
-              <button className="btn-secondary w-full" onClick={() => onValidateDor?.(bug)}>
+              <button className="btn-secondary w-full" onClick={() => onValidateDor?.(bug.id)}>
                 Analizar DoR
               </button>
               <button className="btn-secondary w-full" onClick={() => onBack()}>

@@ -3,6 +3,42 @@ import { Bug, Severity, BugStatus } from '../../types'
 import { bugsApi, githubSyncApi, projectsApi } from '../../services/api'
 import BugDetail from './BugDetail'
 
+interface DorCheckItem {
+  id: string
+  name: string
+  description: string
+  passed: boolean
+  weight: number
+  suggestion?: string
+  evaluatedValue?: string | string[]
+  suggestedFix?: {
+    field: 'title' | 'description' | 'severity' | 'stepsToReproduce' | 'expectedResult' | 'actualResult' | 'environment'
+    value: string | string[] | number
+  }
+}
+
+interface DorRecommendation {
+  checkId: string
+  checkName: string
+  message: string
+  source: 'rules' | 'ai'
+  suggestedFix?: {
+    field: 'title' | 'description' | 'severity' | 'stepsToReproduce' | 'expectedResult' | 'actualResult' | 'environment'
+    value: string | string[] | number
+  }
+}
+
+interface DorValidation {
+  score: number
+  isReady: boolean
+  checklist: DorCheckItem[]
+  summary: string
+  recommendations: string[]
+  recommendationsDetailed: DorRecommendation[]
+  cached?: boolean
+  validatedAt?: string
+}
+
 interface Filters {
   severity: Severity | ''
   status: BugStatus | ''
@@ -21,6 +57,19 @@ export default function BugList() {
   const [branches, setBranches] = useState<string[]>([])
   const [editingBug, setEditingBug] = useState<Bug | null>(null)
   const [dorResult, setDorResult] = useState<any>(null)
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null)
+  const [validatingDor, setValidatingDor] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    severity: 'MEDIUM',
+    stepsToReproduce: [''],
+    expectedResult: '',
+    actualResult: '',
+    environment: '',
+  })
   const [filters, setFilters] = useState<Filters>({
     severity: '',
     status: '',
@@ -59,13 +108,82 @@ export default function BugList() {
     }
   }
 
-  const validateBugDor = async (bug: Bug) => {
+  /**
+   * Valida el DoR de un bug.
+   * Por defecto usa la caché del backend (análisis persistido, estable).
+   * Con `refresh=true` fuerza un nuevo análisis con IA (no-determinista).
+   */
+  const validateBugDor = async (bugId: string, refresh = false) => {
+    setValidatingDor(bugId)
     try {
-      const response = await bugsApi.validateDor(bug.id)
+      const response = await bugsApi.validateDor(bugId, refresh)
       setDorResult(response)
+      setAiAnalysis(response.aiAnalysis)
+      setSelectedBug(response.bug)
       await fetchBugs()
     } catch (err: any) {
       alert(err?.response?.data?.error?.message || 'Error al validar el DoR del bug')
+    } finally {
+      setValidatingDor(null)
+    }
+  }
+
+  /**
+   * Inicia la edición del bug desde el modal DoR.
+   */
+  const handleStartEdit = () => {
+    if (!selectedBug) return
+    setEditFormData({
+      title: selectedBug.title,
+      description: selectedBug.description,
+      severity: selectedBug.severity,
+      stepsToReproduce: selectedBug.stepsToReproduce && selectedBug.stepsToReproduce.length > 0 ? selectedBug.stepsToReproduce : [''],
+      expectedResult: selectedBug.expectedResult || '',
+      actualResult: selectedBug.actualResult || '',
+      environment: selectedBug.environment || '',
+    })
+    setIsEditing(true)
+  }
+
+  /**
+   * Guarda los cambios del bug y revalida el DoR.
+   */
+  const handleSaveBug = async () => {
+    if (!selectedBug) return
+    try {
+      await bugsApi.update(selectedBug.id, {
+        title: editFormData.title,
+        description: editFormData.description,
+        severity: editFormData.severity,
+        stepsToReproduce: editFormData.stepsToReproduce.filter((s: string) => s.trim() !== ''),
+        expectedResult: editFormData.expectedResult,
+        actualResult: editFormData.actualResult,
+        environment: editFormData.environment,
+      })
+      setIsEditing(false)
+      // Revalidar con los nuevos datos
+      await validateBugDor(selectedBug.id, true)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar el bug')
+    }
+  }
+
+  /**
+   * Aplica un parche DoR específico al bug.
+   * Llama al endpoint /apply-dor-fixes y recarga la validación.
+   */
+  const handleApplyFix = async (fix: { field: string; value: string | string[] | number }) => {
+    if (!selectedBug) return
+    setApplyingFix(selectedBug.id)
+    try {
+      await bugsApi.applyDorFixes(selectedBug.id, [fix])
+      // Recargar la validación para reflejar los cambios
+      await validateBugDor(selectedBug.id, true)
+      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+    } finally {
+      setApplyingFix(null)
     }
   }
 
@@ -405,12 +523,249 @@ export default function BugList() {
         </div>
       )}
 
+      {/* Overlay de carga para validación DoR */}
+      {validatingDor && (
+        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-[200]">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent mb-4"></div>
+          <p className="text-white text-lg font-medium">Validando DoR con IA...</p>
+          <p className="text-gray-300 text-sm mt-1">🤖 Gemini está analizando el bug</p>
+        </div>
+      )}
+
+      {/* Modal de validación DoR del Bug */}
       {dorResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6">
-            <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Análisis DoR del Bug</h2><button onClick={() => setDorResult(null)}>✕</button></div>
-            <p className="mb-4">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
-            <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Header fijo */}
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Validación DoR del Bug
+              </h2>
+              <div className="flex items-center gap-2">
+                {dorResult.validation.cached && (
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
+                    📌 Caché
+                  </span>
+                )}
+                <button
+                  onClick={() => selectedBug && validateBugDor(selectedBug.id, true)}
+                  disabled={validatingDor === selectedBug?.id}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                  title="Refrescar análisis con IA"
+                >
+                  🔄
+                </button>
+                <button
+                  onClick={() => { setDorResult(null); setAiAnalysis(null); }}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido: 2 columnas */}
+            <div className="flex-1 overflow-y-auto flex">
+              {/* Columna izquierda: Bug (editable) */}
+              <div className="w-2/5 border-r border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
+                {selectedBug && !isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-medium text-gray-900 dark:text-white mt-1">
+                          {selectedBug.title}
+                        </h3>
+                      </div>
+                      <button
+                        onClick={handleStartEdit}
+                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200 shrink-0"
+                      >
+                        ✏️ Editar
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      {selectedBug.description}
+                    </p>
+                    <div className="text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Severidad:</span>
+                        <span className="font-medium">{selectedBug.severity}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Entorno:</span>
+                        <span className="font-medium">{selectedBug.environment || 'No especificado'}</span>
+                      </div>
+                    </div>
+                    {selectedBug.stepsToReproduce && selectedBug.stepsToReproduce.length > 0 && (
+                      <div className="text-xs">
+                        <span className="text-gray-500">Pasos para reproducir:</span>
+                        <ol className="list-decimal list-inside text-gray-600 dark:text-gray-400 mt-1">
+                          {selectedBug.stepsToReproduce.map((step, i) => (
+                            <li key={i}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedBug && isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <h3 className="font-medium text-gray-900 dark:text-white">Editar Bug</h3>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className="px-2 py-1 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 shrink-0"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs text-gray-500">Título</label>
+                        <input
+                          type="text"
+                          value={editFormData.title}
+                          onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                          className="input-field text-sm w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500">Descripción</label>
+                        <textarea
+                          value={editFormData.description}
+                          onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                          className="input-field text-sm w-full"
+                          rows={3}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500">Severidad</label>
+                        <select
+                          value={editFormData.severity}
+                          onChange={(e) => setEditFormData({ ...editFormData, severity: e.target.value })}
+                          className="input-field text-sm w-full"
+                        >
+                          <option value="CRITICAL">Crítica</option>
+                          <option value="HIGH">Alta</option>
+                          <option value="MEDIUM">Media</option>
+                          <option value="LOW">Baja</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500">Entorno</label>
+                        <input
+                          type="text"
+                          value={editFormData.environment}
+                          onChange={(e) => setEditFormData({ ...editFormData, environment: e.target.value })}
+                          className="input-field text-sm w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500">Resultado esperado</label>
+                        <input
+                          type="text"
+                          value={editFormData.expectedResult}
+                          onChange={(e) => setEditFormData({ ...editFormData, expectedResult: e.target.value })}
+                          className="input-field text-sm w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500">Resultado actual</label>
+                        <input
+                          type="text"
+                          value={editFormData.actualResult}
+                          onChange={(e) => setEditFormData({ ...editFormData, actualResult: e.target.value })}
+                          className="input-field text-sm w-full"
+                        />
+                      </div>
+                      <button
+                        onClick={handleSaveBug}
+                        className="btn-primary w-full text-sm"
+                      >
+                        Guardar y revalidar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Columna derecha: Resultados DoR */}
+              <div className="w-3/5 p-4 overflow-y-auto">
+                <p className="mb-4">
+                  Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? '✅ Listo' : '⚠️ Requiere mejoras'}
+                </p>
+
+                {/* Análisis de IA */}
+                {aiAnalysis && (
+                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900 rounded-lg">
+                    <h4 className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">🤖 Análisis de IA (Gemini)</h4>
+                    <div className="text-xs space-y-1 text-blue-600 dark:text-blue-400">
+                      <div className="flex justify-between">
+                        <span>Score IA:</span>
+                        <span className="font-medium">{aiAnalysis.score}%</span>
+                      </div>
+                      {aiAnalysis.missingElements && aiAnalysis.missingElements.length > 0 && (
+                        <div>
+                          <span className="font-medium">Elementos faltantes:</span>
+                          <ul className="list-disc list-inside ml-2">
+                            {aiAnalysis.missingElements.map((el: string, i: number) => (
+                              <li key={i}>{el}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.riskAreas && aiAnalysis.riskAreas.length > 0 && (
+                        <div>
+                          <span className="font-medium">Áreas de riesgo:</span>
+                          <ul className="list-disc list-inside ml-2">
+                            {aiAnalysis.riskAreas.map((risk: string, i: number) => (
+                              <li key={i}>{risk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Checklist DoR */}
+                <div className="space-y-2">
+                  {dorResult.validation.checklist.map((item: any) => (
+                    <div key={item.id} className="border rounded p-3">
+                      <div className="flex items-center justify-between">
+                        <span>{item.passed ? '✅' : '❌'} {item.name}</span>
+                        {!item.passed && item.suggestedFix && (
+                          <button
+                            onClick={() => handleApplyFix(item.suggestedFix)}
+                            className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded hover:bg-green-200"
+                          >
+                            Aplicar mejora
+                          </button>
+                        )}
+                      </div>
+                      {item.suggestion && <p className="text-sm text-gray-500 mt-1">{item.suggestion}</p>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Recomendaciones detalladas */}
+                {dorResult.validation.recommendationsDetailed && dorResult.validation.recommendationsDetailed.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Recomendaciones detalladas</h4>
+                    <div className="space-y-1">
+                      {dorResult.validation.recommendationsDetailed.map((rec: any, i: number) => (
+                        <div key={i} className="text-xs p-2 bg-gray-50 dark:bg-gray-800 rounded flex items-start gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-xs ${rec.source === 'ai' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'}`}>
+                            {rec.source === 'ai' ? 'IA' : 'Regla'}
+                          </span>
+                          <span className="text-gray-600 dark:text-gray-400">{rec.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
