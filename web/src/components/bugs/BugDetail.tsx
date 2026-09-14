@@ -1,4 +1,6 @@
 import { Bug } from '../../types'
+import { useState } from 'react'
+import BugDorModal from './BugDorModal'
 
 interface BugDetailProps {
   bug: Bug
@@ -7,9 +9,48 @@ interface BugDetailProps {
   onDelete?: (bug: Bug) => void
   onValidateDor?: (bugId: string, refresh?: boolean) => void
   dorResult?: any
+  aiAnalysis?: any
+  onApplyFix?: (fix: { field: string; value: string | string[] | number }) => void
+  onCloseDor?: () => void
+  isRefreshing?: boolean
 }
 
-export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult }: BugDetailProps) {
+export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult, aiAnalysis, onApplyFix, onCloseDor, isRefreshing }: BugDetailProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    severity: 'MEDIUM',
+    stepsToReproduce: [''] as string[],
+    expectedResult: '',
+    actualResult: '',
+    environment: '',
+  })
+
+  const handleStartEdit = () => {
+    setEditFormData({
+      title: bug.title,
+      description: bug.description,
+      severity: bug.severity,
+      stepsToReproduce: bug.stepsToReproduce && bug.stepsToReproduce.length > 0 ? [...bug.stepsToReproduce] : [''],
+      expectedResult: bug.expectedResult || '',
+      actualResult: bug.actualResult || '',
+      environment: bug.environment || '',
+    })
+    setIsEditing(true)
+  }
+
+  const handleSaveBug = async () => {
+    try {
+      // La actualización se maneja desde el padre
+      setIsEditing(false)
+      if (onValidateDor) {
+        onValidateDor(bug.id, true)
+      }
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar el bug')
+    }
+  }
   const getSeverityColor = (severity: string): string => {
     const colors: Record<string, string> = {
       CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
@@ -67,14 +108,6 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
           </span>
         </div>
       </div>
-
-      {dorResult && (
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-3">Análisis DoR</h2>
-          <p className="mb-3">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
-          <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
-        </div>
-      )}
 
       {/* Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -240,6 +273,23 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
           </div>
         </div>
       </div>
+
+      {/* Modal DoR */}
+      <BugDorModal
+        bug={bug}
+        dorResult={dorResult}
+        aiAnalysis={aiAnalysis}
+        onClose={onCloseDor || (() => {})}
+        onRefresh={() => onValidateDor?.(bug.id, true)}
+        isRefreshing={isRefreshing || false}
+        onStartEdit={handleStartEdit}
+        isEditing={isEditing}
+        editFormData={editFormData}
+        onEditFormChange={setEditFormData}
+        onSaveBug={handleSaveBug}
+        onApplyFix={onApplyFix || (() => {})}
+        applyingFix={null}
+      />
     </div>
   )
 }

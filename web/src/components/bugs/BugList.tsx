@@ -274,7 +274,20 @@ export default function BugList() {
   }
 
   if (selectedBug) {
-    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} onEdit={openEdit} onDelete={handleDelete} onValidateDor={validateBugDor} dorResult={dorResult} />
+    return (
+      <BugDetail
+        bug={selectedBug}
+        onBack={() => setSelectedBug(null)}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+        onValidateDor={validateBugDor}
+        dorResult={dorResult}
+        aiAnalysis={aiAnalysis}
+        onApplyFix={handleApplyFix}
+        onCloseDor={() => { setDorResult(null); setAiAnalysis(null); }}
+        isRefreshing={validatingDor !== null}
+      />
+    )
   }
 
   return (
