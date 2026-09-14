@@ -233,7 +233,7 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           actualResult: bugMapped.actualResult,
           assignee: bugMapped.assignee,
           labels: bugMapped.labels,
-          ...(bugMapped.branchName !== null ? { branchName: bugMapped.branchName } : {}),
+          branchName: bugMapped.branchName ?? null,
         },
       });
       synced.push({ id: bug.id, issueNumber: issue.number, type: 'BUG' });
