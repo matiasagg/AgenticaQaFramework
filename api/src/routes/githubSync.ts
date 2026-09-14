@@ -14,6 +14,7 @@ import { ApiError } from '../middleware/errorHandler';
 import {
   fetchIssues,
   fetchBranches,
+  fetchCollaborators,
   fetchPullRequests,
   mapIssueToUserStory,
   mapIssueToBugReport,
@@ -66,7 +67,10 @@ function detectIssueTarget(issue: { title: string; labels: Array<{ name: string 
 }
 
 function normalizeIssueTitle(title: string): string {
-  return title.replace(/^\s*\[(epic|epica|feature|hdu)(?:\s*[-_:]\s*[^\]]+)?\]\s*/i, '').trim();
+  return title
+    .replace(/^\s*\[(epic|epica|feature|hdu)(?:\s*[-_:]\s*[^\]]+)?\]\s*/i, '')
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .trim();
 }
 
 async function ensureDefaultEpic(projectId: string): Promise<{ id: string }> {
@@ -174,7 +178,7 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
  * Body: { issueNumbers: number[] }
  */
 router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { issueNumbers } = req.body;
+  const { issueNumbers, force = false } = req.body;
   if (!Array.isArray(issueNumbers) || issueNumbers.length === 0) {
     throw new ApiError('Falta issueNumbers (array de números de issue)', 400);
   }
@@ -227,13 +231,20 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           stepsToReproduce: bugMapped.stepsToReproduce,
           expectedResult: bugMapped.expectedResult,
           actualResult: bugMapped.actualResult,
+          assignee: bugMapped.assignee,
+          labels: bugMapped.labels,
+          branchName: bugMapped.branchName ?? null,
         },
       });
       synced.push({ id: bug.id, issueNumber: issue.number, type: 'BUG' });
     } else {
       // Sincronizar HDU
       const story = stories.find((item) => item.externalId === String(issue.number));
-      if (!story || !hasGitHubIssueChanged(issue, story.syncedAt)) {
+      // `force` is used when opening the DoR editor. This is important for
+      // fields added after the original import (assignee, labels and branch):
+      // GitHub may not have changed the issue since the last regular sync,
+      // but the local record can still be missing those values.
+      if (!story || (!force && !hasGitHubIssueChanged(issue, story.syncedAt))) {
         skipped.push(issue.number);
         continue;
       }
@@ -242,9 +253,21 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
       await prisma.userStory.update({
         where: { id: story.id },
         data: {
-          title: mapped.title,
+          // GitHub puede contener el correlativo publicado por el SaaS; no lo
+          // persistas como parte del nombre funcional de la HDU.
+          title: normalizeIssueTitle(mapped.title),
           description: buildIssueDescription(mapped.description, mapped.githubUrl),
           acceptanceCriteria: mapped.acceptanceCriteria,
+          definitionOfDone: mapped.definitionOfDone,
+          technicalNotes: mapped.technicalNotes,
+          evidences: mapped.evidences,
+          dependencies: mapped.dependencies,
+          storyPoints: mapped.storyPoints,
+          labels: mapped.labels,
+          assignee: mapped.assignee,
+          // A null value is intentional: it removes a stale local branch when
+          // the GitHub issue no longer declares one in its metadata.
+          branchName: mapped.branchName ?? null,
           priority: mapped.priority as any,
           syncStatus: 'SYNCED',
           syncMetadata: {
@@ -297,7 +320,11 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const allIssues = await fetchIssues(project.repository, 'all', token);
-  const toImport = allIssues.filter((i) => issueNumbers.includes(i.number));
+  // El correlativo del SaaS debe seguir el orden histórico de GitHub:
+  // issue más antiguo primero, independientemente del orden de la API.
+  const toImport = allIssues
+    .filter((i) => issueNumbers.includes(i.number))
+    .sort((left, right) => left.number - right.number);
 
   if (toImport.length === 0) {
     throw new ApiError('No se encontraron issues con esos números', 404);
@@ -396,6 +423,9 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
             userId: req.user!.id,
             githubId: externalId,
             status: 'OPEN',
+            assignee: bugMapped.assignee,
+            labels: bugMapped.labels,
+            branchName: bugMapped.branchName,
           },
         });
 
@@ -426,6 +456,14 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
           title: normalizedTitle,
           description: descriptionWithRef,
           acceptanceCriteria: mapped.acceptanceCriteria,
+          definitionOfDone: mapped.definitionOfDone,
+          technicalNotes: mapped.technicalNotes,
+          evidences: mapped.evidences,
+          dependencies: mapped.dependencies,
+          storyPoints: mapped.storyPoints,
+          labels: mapped.labels,
+          assignee: mapped.assignee,
+          branchName: mapped.branchName,
           priority: mapped.priority as any,
           projectId: project.id,
           userId: req.user!.id,
@@ -486,6 +524,18 @@ router.get('/:projectId/branches', asyncHandler(async (req: AuthenticatedRequest
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const branches = await fetchBranches(project.repository, token);
   res.json({ branches });
+}));
+
+/** GET /api/github-sync/:projectId/collaborators */
+router.get('/:projectId/collaborators', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.projectId, userId: req.user!.id },
+  });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+  if (!project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
+  const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const collaborators = await fetchCollaborators(project.repository, token);
+  res.json({ collaborators });
 }));
 
 /**

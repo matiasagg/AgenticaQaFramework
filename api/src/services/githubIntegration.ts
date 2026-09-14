@@ -19,6 +19,8 @@ export interface GitHubIssue {
   body: string | null;
   state: 'open' | 'closed';
   labels: Array<{ name: string }>;
+  assignee?: { login: string } | null;
+  assignees?: Array<{ login: string }>;
   html_url: string;
   created_at: string;
   updated_at: string;
@@ -90,13 +92,17 @@ async function fetchGitHubJson(url: string, token: string) {
       return response.json();
     } catch (error: any) {
       lastError = error;
-      const message = String(error?.message || '').toLowerCase();
+      const message = String(error?.message || '');
+      // Los errores HTTP de la API de GitHub (404, 401, etc.) NO son de red:
+      // se re-lanzan tal cual para no ocultar el código de estado real.
+      if (message.includes('GitHub API error')) throw error;
+      const lowerMessage = message.toLowerCase();
       const isTransientNetworkError =
-        message.includes('fetch failed') ||
-        message.includes('econnreset') ||
-        message.includes('etimedout') ||
-        message.includes('enotfound') ||
-        message.includes('socket');
+        lowerMessage.includes('fetch failed') ||
+        lowerMessage.includes('econnreset') ||
+        lowerMessage.includes('etimedout') ||
+        lowerMessage.includes('enotfound') ||
+        lowerMessage.includes('socket');
 
       if (!isTransientNetworkError || attempt === 2) {
         const cause = error?.cause?.message || error?.cause?.code || 'sin detalle adicional';
@@ -158,25 +164,171 @@ export function mapIssueToUserStory(issue: GitHubIssue): {
   title: string;
   description: string;
   acceptanceCriteria: string[];
+  definitionOfDone: string[];
+  technicalNotes: string[];
+  evidences: string[];
+  dependencies: string[];
+  storyPoints: number | null;
   priority: string;
   githubIssueNumber: number;
   githubUrl: string;
+  assignee: string | null;
+  labels: string[];
+  branchName: string | null;
 } {
   // Extraer criterios de aceptación del cuerpo del issue (secciones comunes)
   const body = issue.body || '';
   const acceptanceCriteria = extractAcceptanceCriteria(body);
+  // Extraer criterios de Definition of Done de su sección específica
+  const definitionOfDone = extractDefinitionOfDone(body);
+  // Secciones enriquecidas con campo propio en la HDU
+  const technicalNotes = extractBulletSection(body, /notas?\s+t[eé]cnicas?|technical\s+notes/i);
+  const evidences = extractBulletSection(body, /evidencias?|evidences?/i);
+  const dependencies = extractBulletSection(body, /dependencias?|dependencies?/i);
+  // Extraer story points si el issue los declara (ej: "**Story Points:** 5")
+  const storyPoints = extractStoryPoints(body);
+  const branchName = body.match(/\*\*Rama:\*\*\s*`?([^`\n]+)`?/i)?.[1]?.trim() || null;
 
   // Mapear labels de prioridad
   const priority = mapPriority(issue.labels.map((l) => l.name));
 
   return {
     title: issue.title,
-    description: body || issue.title,
+    // La descripción se limpia: las secciones que tienen campo propio
+    // (criterios de aceptación, DoD, metadatos/prioridad/story points)
+    // no deben duplicarse dentro de la descripción.
+    description: cleanIssueDescription(body) || issue.title,
     acceptanceCriteria,
+    definitionOfDone,
+    technicalNotes,
+    evidences,
+    dependencies,
+    storyPoints,
     priority,
     githubIssueNumber: issue.number,
     githubUrl: issue.html_url,
+    assignee: issue.assignee?.login || issue.assignees?.[0]?.login || null,
+    labels: issue.labels.map((label) => label.name),
+    branchName,
   };
+}
+
+/** Construye el título que se publica en GitHub para una HDU del SaaS. */
+export function buildGitHubHduTitle(displayId: string | null | undefined, title: string): string {
+  const cleanTitle = title
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '')
+    .trim();
+
+  return displayId ? `${displayId} - ${cleanTitle}` : cleanTitle;
+}
+
+/**
+ * Extrae los criterios de Definition of Done del cuerpo de un issue.
+ * Busca secciones "Definition of Done", "DoD", "Definición de Terminado", etc.
+ */
+export function extractDefinitionOfDone(body: string): string[] {
+  if (!body) return [];
+
+  // El encabezado debe estar en su propia línea (evita falsos positivos
+  // como la palabra "DoD" dentro de un párrafo anterior).
+  const headerRegex = /^[ \t]*#{1,4}[ \t]*((?:definition\s+of\s+done)|(?:definici[oó]n\s+de\s+terminado)|(?:definici[oó]n\s+de\s+hecho)|dod)[ \t]*:?[ \t]*$/im;
+  const headerMatch = body.match(headerRegex);
+  if (!headerMatch) return [];
+
+  // Tomar las líneas posteriores al encabezado, hasta el próximo encabezado.
+  const afterHeader = body.slice(headerMatch.index! + headerMatch[0].length);
+  const nextHeader = afterHeader.search(/^[ \t]*#{1,4}\s+/m);
+  const sectionContent = (nextHeader === -1 ? afterHeader : afterHeader.slice(0, nextHeader)).trim();
+  if (!sectionContent) return [];
+
+  return sectionContent
+    .split('\n')
+    .map((line) => line.replace(/^[\s*+-]+\[?[ x]?\]?\s*/, '').trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 15);
+}
+
+/**
+ * Extrae los bullets de una sección genérica identificada por su encabezado.
+ * Se usa para las secciones enriquecidas (Notas Técnicas, Evidencias, Dependencias).
+ *
+ * @param body - Cuerpo Markdown del issue
+ * @param headerPattern - Regex del texto del encabezado (sin el "#")
+ * @returns Lista de bullets de la sección (sin prefijo "- [x]")
+ */
+export function extractBulletSection(body: string, headerPattern: RegExp): string[] {
+  if (!body) return [];
+
+  const headerRegex = new RegExp(`^[ \\t]*#{1,4}[ \\t]*(?:${headerPattern.source})[ \\t]*:?[ \\t]*$`, 'im');
+  const headerMatch = body.match(headerRegex);
+  if (!headerMatch) return [];
+
+  const afterHeader = body.slice(headerMatch.index! + headerMatch[0].length);
+  const nextHeader = afterHeader.search(/^[ \t]*#{1,4}\s+/m);
+  const sectionContent = (nextHeader === -1 ? afterHeader : afterHeader.slice(0, nextHeader)).trim();
+  if (!sectionContent) return [];
+
+  return sectionContent
+    .split('\n')
+    .map((line) => line.replace(/^[\s*+-]+\[?[ x]?\]?\s*/, '').trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 15);
+}
+
+/**
+ * Extrae los story points declarados en el cuerpo del issue.
+ * Formatos soportados: "**Story Points:** 5", "Story points: 5", "SP: 5".
+ */
+export function extractStoryPoints(body: string): number | null {
+  if (!body) return null;
+  // Toleramos asteriscos de negrita Markdown: "- **Story Points:** 5"
+  const match = body.match(/(?:story\s*points?|\bsp\b)\s*\**\s*[:=]\s*\**\s*(\d{1,2})/i);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  return isNaN(value) ? null : value;
+}
+
+/**
+ * Limpia la descripción de un issue removiendo las secciones que tienen
+ * campo propio en la HDU (criterios de aceptación, DoD, metadatos con
+ * prioridad/story points). Así esos datos no aparecen duplicados dentro
+ * de la descripción.
+ */
+export function cleanIssueDescription(body: string): string {
+  if (!body) return '';
+
+  // Remover secciones completas por encabezado (## o **) hasta el
+  // siguiente encabezado o el fin del documento.
+  const sectionHeaders = [
+    /^[ \t]*#{1,4}\s*(?:criterios?\s+de\s+aceptaci[oó]n|acceptance\s+criteria)[^\n]*\n?/im,
+    /^[ \t]*#{1,4}\s*(?:definition\s+of\s+done|definici[oó]n\s+de\s+terminado|definici[oó]n\s+de\s+hecho|dod)[^\n]*\n?/im,
+    /^[ \t]*#{1,4}\s*(?:notas?\s+t[eé]cnicas?|technical\s+notes)[^\n]*\n?/im,
+    /^[ \t]*#{1,4}\s*(?:evidencias?|evidences?)[^\n]*\n?/im,
+    /^[ \t]*#{1,4}\s*(?:dependencias?|dependencies?)[^\n]*\n?/im,
+    /^[ \t]*#{1,4}\s*metadatos[^\n]*\n?/im,
+  ];
+
+  let cleaned = body;
+  for (const headerRegex of sectionHeaders) {
+    const match = cleaned.match(headerRegex);
+    if (!match) continue;
+    const start = match.index! + match[0].length;
+    // La sección llega hasta el próximo encabezado de cualquier nivel
+    const rest = cleaned.slice(start);
+    const nextHeader = rest.search(/^[ \t]*#{1,4}\s+/m);
+    const sectionEnd = nextHeader === -1 ? cleaned.length : start + nextHeader;
+    cleaned = cleaned.slice(0, match.index!) + cleaned.slice(sectionEnd);
+  }
+
+  // Remover líneas sueltas de metadatos tipo "- **Prioridad:** ..." /
+  // "- **Story Points:** ..." que quedaron fuera de una sección.
+  cleaned = cleaned
+    .split('\n')
+    .filter((line) => !/^\s*[-*]\s*\*\*\s*(prioridad|story\s*points?|sp)\s*\*\*\s*:/i.test(line))
+    .join('\n');
+
+  return cleaned.trim();
 }
 
 /**
@@ -311,6 +463,9 @@ export function mapIssueToBugReport(issue: GitHubIssue): {
   actualResult: string;
   githubIssueNumber: number;
   githubUrl: string;
+  assignee: string | null;
+  labels: string[];
+  branchName: string | null;
 } {
   const body = issue.body || '';
   const stepsToReproduce = extractStepsToReproduce(body);
@@ -321,6 +476,7 @@ export function mapIssueToBugReport(issue: GitHubIssue): {
   // Extraer resultado esperado/real del cuerpo si existe
   const expectedMatch = body.match(/(?:resultado\s+esperado|expected\s+result)[:\s]*\n?([^\n]+)/i);
   const actualMatch = body.match(/(?:resultado\s+real|actual\s+result)[:\s]*\n?([^\n]+)/i);
+  const branchName = body.match(/\*\*Rama:\*\*\s*`?([^`\n]+)`?/i)?.[1]?.trim() || null;
 
   return {
     title: issue.title,
@@ -331,6 +487,9 @@ export function mapIssueToBugReport(issue: GitHubIssue): {
     actualResult: actualMatch?.[1]?.trim() || '',
     githubIssueNumber: issue.number,
     githubUrl: issue.html_url,
+    assignee: issue.assignee?.login || issue.assignees?.[0]?.login || null,
+    labels: issue.labels.map((label) => label.name),
+    branchName,
   };
 }
 
@@ -353,6 +512,21 @@ export async function fetchBranches(
 
   const branches = (await fetchGitHubJson(url, token)) as Array<{ name: string }>;
   return branches.map((b) => b.name);
+}
+
+/** Obtiene los usuarios con acceso al repositorio para asignar issues. */
+export async function fetchCollaborators(
+  repoUrl: string,
+  tokenOverride?: string | null
+): Promise<Array<{ login: string; avatarUrl?: string }>> {
+  const parsed = parseRepoUrl(repoUrl);
+  if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
+  const token = getGitHubToken(tokenOverride);
+  const collaborators = await fetchGitHubJson(
+    `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/collaborators?per_page=100`,
+    token
+  ) as Array<{ login: string; avatar_url?: string }>;
+  return collaborators.map((user) => ({ login: user.login, avatarUrl: user.avatar_url }));
 }
 
 /**
@@ -391,11 +565,214 @@ export async function fetchPullRequests(
   }));
 }
 
+/**
+ * Actualiza un issue de GitHub (HDU-012).
+ *
+ * Permite sincronizar los cambios de la HDU (título, descripción, criterios de
+ * aceptación, prioridad, story points) con el issue original de GitHub. Se usa
+ * cuando el usuario aplica mejoras DoR y quiere "pushear" los cambios al repo.
+ *
+ * @param repoUrl - URL del repositorio (https://github.com/owner/repo)
+ * @param issueNumber - Número del issue a actualizar
+ * @param updates - Campos a actualizar (title, body, state)
+ * @param tokenOverride - Token opcional del proyecto (si no se usa el global)
+ * @returns El issue actualizado
+ * @throws Error si el token no está configurado o la API responde con error
+ */
+export async function updateGitHubIssue(
+  repoUrl: string,
+  issueNumber: number,
+  updates: {
+    title?: string;
+    body?: string;
+    state?: 'open' | 'closed';
+    labels?: string[];
+    assignees?: string[];
+  },
+  tokenOverride?: string | null
+): Promise<{ number: number; title: string; html_url: string; state: string }> {
+  const parsed = parseRepoUrl(repoUrl);
+  if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
+
+  const token = getGitHubToken(tokenOverride);
+
+  // Construir solo los campos que se van a actualizar
+  const body: Record<string, string | string[]> = {};
+  if (updates.title !== undefined) body.title = updates.title;
+  if (updates.body !== undefined) body.body = updates.body;
+  if (updates.state !== undefined) body.state = updates.state;
+  if (updates.labels !== undefined) body.labels = updates.labels;
+  if (updates.assignees !== undefined) body.assignees = updates.assignees;
+
+  if (Object.keys(body).length === 0) {
+    throw new Error('No se proporcionaron campos para actualizar (title, body, state, labels, assignees).');
+  }
+
+  const url = `${GITHUB_API}/repos/${parsed.owner}/${parsed.repo}/issues/${issueNumber}`;
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'QA-SaaS-Platform',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`GitHub API error al actualizar issue #${issueNumber}: ${response.status} - ${errorBody}`);
+  }
+
+  const updated = await response.json() as {
+    number: number;
+    title: string;
+    html_url: string;
+    state: string;
+  };
+
+  return updated;
+}
+
+/**
+ * Construye el cuerpo del issue de GitHub a partir de los datos de la HDU (HDU-012).
+ *
+ * Genera un cuerpo Markdown estructurado con los campos de la HDU, incluyendo
+ * la referencia al issue original. Se usa para sincronizar los cambios del
+ * SaaS con el issue en GitHub.
+ *
+ * @param hdu - Datos de la historia de usuario
+ * @returns Texto Markdown listo para usar como cuerpo del issue
+ */
+export function buildIssueBodyFromHdu(hdu: {
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  definitionOfDone?: string[] | null;
+  technicalNotes?: string[] | null;
+  evidences?: string[] | null;
+  dependencies?: string[] | null;
+  assignee?: string | null;
+  labels?: string[] | null;
+  branchName?: string | null;
+  priority: string;
+  storyPoints?: number | null;
+  displayId?: string | null;
+  githubUrl?: string | null;
+}): string {
+  const lines: string[] = [];
+
+  // Referencia al issue original (si existe)
+  // The original issue reference is appended below when the description does not already contain it.
+  }
+
+  // ID de la HDU en el SaaS
+  if (hdu.displayId) {
+    lines.push(`**ID:** ${hdu.displayId}`);
+    lines.push('');
+  }
+
+  // Descripción: se limpia de secciones que tienen campo propio (criterios,
+  // DoD, metadatos) para no duplicar información en el issue.
+  const descriptionText = cleanIssueDescription(hdu.description || '');
+  const hasReference = descriptionText.toLowerCase().includes('issue original:') ||
+    descriptionText.includes('🔗');
+
+  if (hasReference) {
+    lines.push(descriptionText);
+  } else if (descriptionText) {
+    lines.push(descriptionText);
+    if (hdu.githubUrl) {
+      lines.push('');
+      lines.push(`---`);
+      lines.push(`🔗 Issue original: ${hdu.githubUrl}`);
+    }
+  } else {
+    lines.push(`Issue original: ${hdu.githubUrl || 'N/A'}`);
+  }
+
+  lines.push('');
+
+  // Criterios de aceptación
+  if (hdu.acceptanceCriteria && hdu.acceptanceCriteria.length > 0) {
+    lines.push('## Criterios de Aceptación');
+    lines.push('');
+    for (const criterion of hdu.acceptanceCriteria) {
+      lines.push(`- ${criterion}`);
+    }
+    lines.push('');
+  }
+
+  // Definition of Done
+  if (hdu.definitionOfDone && hdu.definitionOfDone.length > 0) {
+    lines.push('## Definition of Done');
+    lines.push('');
+    for (const criterion of hdu.definitionOfDone) {
+      lines.push(`- ${criterion}`);
+    }
+    lines.push('');
+  }
+
+  // Notas Técnicas
+  if (hdu.technicalNotes && hdu.technicalNotes.length > 0) {
+    lines.push('## Notas Técnicas');
+    lines.push('');
+    for (const note of hdu.technicalNotes) {
+      lines.push(`- ${note}`);
+    }
+    lines.push('');
+  }
+
+  // Evidencias
+  if (hdu.evidences && hdu.evidences.length > 0) {
+    lines.push('## Evidencias');
+    lines.push('');
+    for (const ev of hdu.evidences) {
+      lines.push(`- ${ev}`);
+    }
+    lines.push('');
+  }
+
+  // Dependencias
+  if (hdu.dependencies && hdu.dependencies.length > 0) {
+    lines.push('## Dependencias');
+    lines.push('');
+    for (const dep of hdu.dependencies) {
+      lines.push(`- ${dep}`);
+    }
+    lines.push('');
+  }
+
+  // Metadatos (incluye asignación, labels y rama de trabajo)
+  lines.push('## Metadatos');
+  lines.push('');
+  lines.push(`- **Prioridad:** ${hdu.priority || 'MEDIUM'}`);
+  if (hdu.storyPoints) {
+    lines.push(`- **Story Points:** ${hdu.storyPoints}`);
+  }
+  if (hdu.assignee) {
+    lines.push(`- **Asignado a:** ${hdu.assignee}`);
+  }
+  if (hdu.labels && hdu.labels.length > 0) {
+    lines.push(`- **Labels:** ${hdu.labels.join(', ')}`);
+  }
+  if (hdu.branchName) {
+    lines.push(`- **Rama:** \`${hdu.branchName}\``);
+  }
+
+  return lines.join('\n');
+}
+
 export default {
   fetchIssues,
   fetchBranches,
+  fetchCollaborators,
   fetchPullRequests,
   mapIssueToUserStory,
   hasGitHubIssueChanged,
   parseRepoUrl,
+  updateGitHubIssue,
+  buildIssueBodyFromHdu,
 };

@@ -9,7 +9,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../services/api'
+import api, { githubSyncApi } from '../services/api'
 
 interface UserStory {
   id: string
@@ -18,6 +18,13 @@ interface UserStory {
   title: string
   description: string
   acceptanceCriteria: string[]
+  definitionOfDone?: string[]
+  technicalNotes?: string[]
+  evidences?: string[]
+  dependencies?: string[]
+  assignee?: string | null
+  labels?: string[]
+  branchName?: string | null
   priority: string
   storyPoints: number | null
   status: string
@@ -31,21 +38,45 @@ interface UserStory {
   epic?: { id: string; name: string } | null
   feature?: { id: string; name: string } | null
   createdAt: string
+  externalSystem?: string | null
+  externalId?: string | null
+  externalUrl?: string | null
+  syncStatus?: string | null
+  syncedAt?: string | null
+}
+
+interface DorCheckItem {
+  id: string
+  name: string
+  description: string
+  passed: boolean
+  weight: number
+  suggestion?: string
+  evaluatedValue?: string | string[]
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
+}
+
+interface DorRecommendation {
+  checkId: string
+  checkName: string
+  message: string
+  source: 'rules' | 'ai'
+  suggestedFix?: {
+    field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints'
+    value: string | string[] | number
+  }
 }
 
 interface DorValidation {
   score: number
   isReady: boolean
-  checklist: Array<{
-    id: string
-    name: string
-    description: string
-    passed: boolean
-    weight: number
-    suggestion?: string
-  }>
+  checklist: DorCheckItem[]
   summary: string
   recommendations: string[]
+  recommendationsDetailed: DorRecommendation[]
   // Indica si el resultado viene de la caché del backend (análisis guardado)
   // o fue recién generado (con IA). validatedAt: fecha del análisis original.
   cached?: boolean
@@ -68,17 +99,90 @@ export default function UserStoriesPage() {
   const [generatingTests, setGeneratingTests] = useState(false)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [pushingHdu, setPushingHdu] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFormData, setEditFormData] = useState<{
+    title: string
+    description: string
+    acceptanceCriteria: string[]
+    definitionOfDone: string[]
+    technicalNotes: string[]
+    evidences: string[]
+    dependencies: string[]
+    priority: string
+    storyPoints: number | null
+  }>({
+    title: '',
+    description: '',
+    acceptanceCriteria: [''],
+    definitionOfDone: [''],
+    technicalNotes: [''],
+    evidences: [''],
+    dependencies: [''],
+    priority: 'MEDIUM',
+    storyPoints: null,
+  })
+  const [savingHdu, setSavingHdu] = useState(false)
+  // Catálogos para los combos del modal DoR (features del proyecto de la HDU
+  // y suites de pruebas del proyecto, para vincularlas desde la edición).
+  const [editFeatures, setEditFeatures] = useState<any[]>([])
+  const [editSuites, setEditSuites] = useState<any[]>([])
+  const [editFeatureId, setEditFeatureId] = useState('')
+  const [editSuiteId, setEditSuiteId] = useState('')
+  const [editAssignee, setEditAssignee] = useState('')
+  const [editLabels, setEditLabels] = useState('')
+  const [editBranchName, setEditBranchName] = useState('')
+  const [editBranches, setEditBranches] = useState<string[]>([])
+  const [githubCollaborators, setGithubCollaborators] = useState<Array<{ login: string }>>([])
+
+  /**
+   * Actualiza un elemento de una de las listas editables del formulario
+   * (criterios, DoD, notas técnicas, evidencias, dependencias).
+   */
+  const updateListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number, value: string) => {
+    setEditFormData(prev => {
+      const list = [...(prev[field] as string[])]
+      list[index] = value
+      return { ...prev, [field]: list }
+    })
+  }
+
+  /**
+   * Elimina un elemento de una de las listas editables del formulario.
+   */
+  const removeListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number) => {
+    setEditFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] as string[]).filter((_, idx) => idx !== index),
+    }))
+  }
+
+  /**
+   * Agrega un elemento vacío al final de una de las listas editables.
+   */
+  const addListItem = (field: 'acceptanceCriteria' | 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies') => {
+    setEditFormData(prev => ({ ...prev, [field]: [...(prev[field] as string[]), ''] }))
+  }
 
   // Form state
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     acceptanceCriteria: [''],
+    definitionOfDone: [''],
+    technicalNotes: [''],
+    evidences: [''],
+    dependencies: [''],
     priority: 'MEDIUM',
     storyPoints: 5,
     projectId: '',
     epicId: '',
     featureId: '',
+    testSuiteId: '',
+    assignee: '',
+    labels: '',
+    branchName: '',
   })
 
   useEffect(() => {
@@ -99,6 +203,16 @@ export default function UserStoriesPage() {
     }
   }
 
+  const fetchTestSuites = async (projectId: string) => {
+    if (!projectId) return
+    try {
+      const response = await api.get('/test-suites', { params: { projectId } })
+      setEditSuites(response.data.suites || [])
+    } catch {
+      setEditSuites([])
+    }
+  }
+
   const fetchProjects = async () => {
     try {
       const response = await api.get('/projects')
@@ -107,6 +221,8 @@ export default function UserStoriesPage() {
         const projectId = response.data.projects[0].id
         setFormData(prev => ({ ...prev, projectId }))
         await fetchEpics(projectId)
+        await fetchGithubOptions(projectId)
+        await fetchTestSuites(projectId)
       }
     } catch (error) {
       console.error('Error fetching projects:', error)
@@ -144,23 +260,51 @@ export default function UserStoriesPage() {
     }
   }
 
+  const fetchGithubOptions = async (projectId: string) => {
+    if (!projectId) return
+    try {
+      const [users, branchList] = await Promise.all([
+        githubSyncApi.getCollaborators(projectId),
+        githubSyncApi.getBranches(projectId),
+      ])
+      setGithubCollaborators(users.collaborators || [])
+      setEditBranches(branchList.branches || [])
+    } catch {
+      setGithubCollaborators([])
+      setEditBranches([])
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       await api.post('/user-stories', {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: formData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: formData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: formData.evidences.filter(c => c.trim() !== ''),
+        dependencies: formData.dependencies.filter(c => c.trim() !== ''),
+        labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowForm(false)
       setFormData({
         title: '',
         description: '',
         acceptanceCriteria: [''],
+        definitionOfDone: [''],
+        technicalNotes: [''],
+        evidences: [''],
+        dependencies: [''],
         priority: 'MEDIUM',
         storyPoints: 5,
         projectId: projects[0]?.id || '',
         epicId: '',
         featureId: '',
+        testSuiteId: '',
+        assignee: '',
+        labels: '',
+        branchName: '',
       })
       fetchUserStories()
     } catch (error: any) {
@@ -227,12 +371,22 @@ export default function UserStoriesPage() {
       title: story.title,
       description: story.description,
       acceptanceCriteria: story.acceptanceCriteria.length > 0 ? story.acceptanceCriteria : [''],
+      definitionOfDone: story.definitionOfDone && story.definitionOfDone.length > 0 ? story.definitionOfDone : [''],
+      technicalNotes: story.technicalNotes && story.technicalNotes.length > 0 ? story.technicalNotes : [''],
+      evidences: story.evidences && story.evidences.length > 0 ? story.evidences : [''],
+      dependencies: story.dependencies && story.dependencies.length > 0 ? story.dependencies : [''],
       priority: story.priority,
       storyPoints: story.storyPoints || 5,
       projectId: story.projectId,
       epicId: story.epicId || '',
       featureId: story.featureId || '',
+      testSuiteId: story.testSuite?.id || '',
+      assignee: story.assignee || '',
+      labels: (story.labels || []).join(', '),
+      branchName: story.branchName || '',
     })
+    if (story.projectId) fetchGithubOptions(story.projectId)
+    if (story.projectId) fetchTestSuites(story.projectId)
     if (story.projectId) {
       fetchEpics(story.projectId).then(() => {
         if (story.epicId) fetchFeatures(story.epicId)
@@ -248,6 +402,11 @@ export default function UserStoriesPage() {
       await api.put(`/user-stories/${editingStory.id}`, {
         ...formData,
         acceptanceCriteria: formData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: formData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: formData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: formData.evidences.filter(c => c.trim() !== ''),
+        dependencies: formData.dependencies.filter(c => c.trim() !== ''),
+        labels: formData.labels.split(',').map(l => l.trim()).filter(Boolean),
       })
       setShowEditForm(false)
       setEditingStory(null)
@@ -276,6 +435,228 @@ export default function UserStoriesPage() {
       ...prev,
       acceptanceCriteria: prev.acceptanceCriteria.filter((_, i) => i !== index),
     }))
+  }
+
+  const updateFormListItem = (
+    field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies',
+    index: number,
+    value: string,
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: prev[field].map((item, itemIndex) => itemIndex === index ? value : item),
+    }))
+  }
+
+  const addFormListItem = (field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies') => {
+    setFormData(prev => ({ ...prev, [field]: [...prev[field], ''] }))
+  }
+
+  const removeFormListItem = (field: 'definitionOfDone' | 'technicalNotes' | 'evidences' | 'dependencies', index: number) => {
+    setFormData(prev => ({ ...prev, [field]: prev[field].filter((_, itemIndex) => itemIndex !== index) }))
+  }
+
+  const renderEnrichedFormFields = () => (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asignado a</label>
+          <select
+            className="input-field mt-1"
+            value={formData.assignee}
+            onChange={(e) => setFormData(prev => ({ ...prev, assignee: e.target.value }))}
+          >
+            <option value="">Sin asignar</option>
+            {githubCollaborators.map(user => <option key={user.login} value={user.login}>{user.login}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Labels (coma)</label>
+          <input
+            className="input-field mt-1"
+            placeholder="frontend, p1, qa"
+            value={formData.labels}
+            onChange={(e) => setFormData(prev => ({ ...prev, labels: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Rama</label>
+          <input
+            className="input-field mt-1"
+            list="hdu-github-branches"
+            placeholder="Selecciona o escribe una rama"
+            value={formData.branchName}
+            onChange={(e) => setFormData(prev => ({ ...prev, branchName: e.target.value }))}
+          />
+          <datalist id="hdu-github-branches">{editBranches.map(branch => <option key={branch} value={branch} />)}</datalist>
+        </div>
+      </div>
+      {([
+        { field: 'definitionOfDone' as const, label: 'Definition of Done (DoD)', placeholder: 'Criterio de terminado' },
+        { field: 'technicalNotes' as const, label: 'Notas técnicas', placeholder: 'Nota técnica' },
+        { field: 'evidences' as const, label: 'Evidencias', placeholder: 'Link / captura / log' },
+        { field: 'dependencies' as const, label: 'Dependencias', placeholder: 'Issue / servicio / equipo' },
+      ]).map(({ field, label, placeholder }) => (
+        <div key={field}>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
+          {formData[field].map((item, index) => (
+            <div key={index} className="flex gap-2 mt-1">
+              <input
+                type="text"
+                value={item}
+                onChange={(e) => updateFormListItem(field, index, e.target.value)}
+                className="input-field flex-1"
+                placeholder={placeholder}
+              />
+              <button
+                type="button"
+                onClick={() => removeFormListItem(field, index)}
+                className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => addFormListItem(field)} className="mt-2 text-sm text-primary-600 hover:text-primary-700">
+            + Agregar {label.toLowerCase()}
+          </button>
+        </div>
+      ))}
+    </>
+  )
+
+  /**
+   * Inicia la edición de la HDU desde el modal DoR.
+   */
+  const handleStartEdit = async () => {
+    if (!selectedStory) return
+
+    // Refresh GitHub-backed metadata before opening the editor. A normal sync
+    // intentionally skips unchanged issues, but these fields may have been
+    // added locally after the issue was imported.
+    let storyToEdit = selectedStory
+    if (selectedStory.externalSystem === 'GITHUB' && selectedStory.externalId && selectedStory.syncStatus !== 'UNSYNCED') {
+      try {
+        await api.post(`/github-sync/${selectedStory.projectId}/sync`, {
+          issueNumbers: [Number(selectedStory.externalId)],
+          force: true,
+        })
+        const refreshed = await api.get(`/user-stories/${selectedStory.id}`)
+        storyToEdit = refreshed.data.userStory
+        setSelectedStory(storyToEdit)
+      } catch (error) {
+        // Keep the local values editable if GitHub is temporarily unavailable.
+        console.warn('No se pudo refrescar la metadata desde GitHub:', error)
+      }
+    }
+    setEditFormData({
+      title: storyToEdit.title,
+      description: storyToEdit.description,
+      acceptanceCriteria: storyToEdit.acceptanceCriteria.length > 0 ? storyToEdit.acceptanceCriteria : [''],
+      definitionOfDone: storyToEdit.definitionOfDone && storyToEdit.definitionOfDone.length > 0 ? storyToEdit.definitionOfDone : [''],
+      technicalNotes: storyToEdit.technicalNotes && storyToEdit.technicalNotes.length > 0 ? storyToEdit.technicalNotes : [''],
+      evidences: storyToEdit.evidences && storyToEdit.evidences.length > 0 ? storyToEdit.evidences : [''],
+      dependencies: storyToEdit.dependencies && storyToEdit.dependencies.length > 0 ? storyToEdit.dependencies : [''],
+      priority: storyToEdit.priority,
+      storyPoints: storyToEdit.storyPoints ?? null,
+    })
+    // Precargar asignación, labels y rama
+    setEditAssignee(storyToEdit.assignee || '')
+    setEditLabels((storyToEdit.labels || []).join(', '))
+    setEditBranchName(storyToEdit.branchName || '')
+    // Precargar los combos de feature y suite con los valores actuales
+    setEditFeatureId(storyToEdit.featureId || '')
+    setEditSuiteId(storyToEdit.testSuite?.id || '')
+    // Cargar features del proyecto y suites del proyecto para los combos
+    if (selectedStory.projectId) {
+      api.get('/features', { params: { projectId: selectedStory.projectId } })
+        .then((res) => setEditFeatures(res.data.features || []))
+        .catch(() => setEditFeatures([]))
+      api.get(`/github-sync/${selectedStory.projectId}/branches`)
+        .then((res) => setEditBranches(res.data.branches || []))
+        .catch(() => setEditBranches([]))
+      githubSyncApi.getCollaborators(selectedStory.projectId)
+        .then((res) => setGithubCollaborators(res.collaborators || []))
+        .catch(() => setGithubCollaborators([]))
+    }
+    api.get('/test-suites', { params: { projectId: selectedStory.projectId } })
+      .then((res) => setEditSuites(res.data.suites || []))
+      .catch(() => setEditSuites([]))
+    setIsEditing(true)
+  }
+
+   * Guarda los cambios de la HDU y revalida el DoR.
+   */
+  const handleSaveHdu = async () => {
+    if (!selectedStory) return
+    setSavingHdu(true)
+    try {
+      await api.put(`/user-stories/${selectedStory.id}`, {
+        title: editFormData.title,
+        description: editFormData.description,
+        acceptanceCriteria: editFormData.acceptanceCriteria.filter(c => c.trim() !== ''),
+        definitionOfDone: editFormData.definitionOfDone.filter(c => c.trim() !== ''),
+        technicalNotes: editFormData.technicalNotes.filter(c => c.trim() !== ''),
+        evidences: editFormData.evidences.filter(c => c.trim() !== ''),
+        dependencies: editFormData.dependencies.filter(c => c.trim() !== ''),
+        priority: editFormData.priority,
+        storyPoints: editFormData.storyPoints,
+        featureId: editFeatureId || undefined,
+        testSuiteId: editSuiteId === '' ? null : editSuiteId,
+        assignee: editAssignee,
+        labels: editLabels.split(',').map(l => l.trim()).filter(l => l !== ''),
+        branchName: editBranchName,
+      })
+      setIsEditing(false)
+      // Revalidar con los nuevos datos
+      await handleValidateDor(selectedStory.id, true)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar la HDU')
+    } finally {
+      setSavingHdu(false)
+    }
+  }
+
+  /**
+   * Aplica un parche DoR específico a la HDU (HDU-012).
+   * Llama al endpoint /apply-dor-fixes y recarga la validación.
+   */
+  const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
+    setApplyingFix(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
+        fixes: [fix]
+      })
+      // Reflejar inmediatamente los campos aplicados en la columna izquierda
+      // del modal, antes de ejecutar el análisis completo con IA.
+      if (response.data.userStory) setSelectedStory(response.data.userStory)
+      if (response.data.validation) setValidationResult(response.data.validation)
+      // Recargar la validación para reflejar los cambios
+      await handleValidateDor(storyId, true)
+      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+    } finally {
+      setApplyingFix(null)
+    }
+  }
+
+  /**
+   * Sincroniza los cambios de la HDU con GitHub (HDU-012).
+   * Llama al endpoint /push-hdu para actualizar el issue.
+   */
+  const handlePushHdu = async (storyId: string) => {
+    setPushingHdu(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/push-hdu`, {})
+      const { github, syncedFields } = response.data
+      alert(`✅ HDU sincronizada con GitHub.\n\nIssue #${github.issueNumber}: ${github.issueUrl}\n\nCampos sincronizados: ${syncedFields.join(', ')}`)
+      fetchUserStories()
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al sincronizar con GitHub')
+    } finally {
+      setPushingHdu(null)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -362,8 +743,10 @@ export default function UserStoriesPage() {
                     value={formData.projectId}
                     onChange={async (e) => {
                       const projectId = e.target.value
-                      setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
+                      setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '', testSuiteId: '' }))
                       if (projectId) await fetchEpics(projectId)
+                      if (projectId) await fetchGithubOptions(projectId)
+                      if (projectId) await fetchTestSuites(projectId)
                     }}
                     className="input-field"
                     required
@@ -413,6 +796,18 @@ export default function UserStoriesPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Suite de pruebas</label>
+                <select
+                  value={formData.testSuiteId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, testSuiteId: e.target.value }))}
+                  className="input-field mt-1"
+                >
+                  <option value="">Sin suite...</option>
+                  {editSuites.map((suite) => <option key={suite.id} value={suite.id}>{suite.title}</option>)}
+                </select>
               </div>
 
               <div>
@@ -507,6 +902,8 @@ export default function UserStoriesPage() {
                 </div>
               </div>
 
+              {renderEnrichedFormFields()}
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
@@ -544,152 +941,478 @@ export default function UserStoriesPage() {
       {/* Modal de validación DoR */}
       {validationResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Resultado Validación DoR
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Header fijo */}
+            <div className="p-4 border-b border-gray-200 dark:bg-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Validación DoR
               </h2>
-              {/* Indicador de origen del resultado: caché (guardado) o freshly generado */}
               <div className="flex items-center gap-2">
                 {validationResult.cached && (
-                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-xs">
-                    📌 Guardado{validationResult.validatedAt ? ` · ${new Date(validationResult.validatedAt).toLocaleString()}` : ''}
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full text-xs">
+                    📌 Caché
                   </span>
                 )}
                 <button
                   onClick={() => selectedStory && handleValidateDor(selectedStory.id, true)}
                   disabled={validatingDor === selectedStory?.id}
-                  className="px-3 py-1 text-sm bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50"
-                  title="Vuelve a ejecutar el análisis con IA (el resultado puede variar)"
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                  title="Refrescar análisis con IA"
                 >
-                  🔄 Refrescar análisis
+                  🔄
                 </button>
-              </div>
-            </div>
-            
-            {/* Score */}
-            <div className={`p-4 rounded-lg mb-4 ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-medium">
-                  Score: {validationResult.score}%
-                </span>
-                <span className={`px-3 py-1 rounded-full text-sm ${validationResult.isReady ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>
-                  {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
-                </span>
-              </div>
-              <p className="text-sm mt-2 text-gray-600 dark:text-gray-400">
-                {validationResult.summary}
-              </p>
-            </div>
-
-            {/* Checklist */}
-            <div className="space-y-2 mb-4">
-              {validationResult.checklist.map((item) => (
-                <div key={item.id} className={`p-3 rounded-lg ${item.passed ? 'bg-green-50 dark:bg-green-900' : 'bg-red-50 dark:bg-red-900'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{item.name}</span>
-                    <span>{item.passed ? '✓' : '✗'}</span>
-                  </div>
-                  {!item.passed && item.suggestion && (
-                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                      💡 {item.suggestion}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Recommendations */}
-            {validationResult.recommendations.length > 0 && (
-              <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg mb-4">
-                <h3 className="font-medium text-blue-800 dark:text-blue-200 mb-2">
-                  Recomendaciones:
-                </h3>
-                <ul className="list-disc list-inside text-sm text-blue-700 dark:text-blue-300">
-                  {validationResult.recommendations.map((rec, i) => (
-                    <li key={i}>{rec}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* AI Analysis */}
-            {aiAnalysis && (
-              <div className="bg-purple-50 dark:bg-purple-900 p-4 rounded-lg mb-4">
-                <h3 className="font-medium text-purple-800 dark:text-purple-200 mb-2 flex items-center">
-                  🤖 Análisis de IA (Gemini)
-                  <span className="ml-2 px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded-full text-xs">
-                    Score IA: {aiAnalysis.score}%
-                  </span>
-                </h3>
-                
-                {aiAnalysis.missingElements?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Elementos faltantes:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.missingElements.map((elem: string, i: number) => (
-                        <li key={i}>{elem}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.suggestions?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Sugerencias de IA:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.suggestions.map((sug: string, i: number) => (
-                        <li key={i}>{sug}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.riskAreas?.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Áreas de riesgo:</p>
-                    <ul className="list-disc list-inside text-sm text-purple-600 dark:text-purple-400">
-                      {aiAnalysis.riskAreas.map((risk: string, i: number) => (
-                        <li key={i}>{risk}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {aiAnalysis.improvedDescription && (
-                  <div className="mt-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-1">Descripción mejorada sugerida:</p>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 italic">
-                      "{aiAnalysis.improvedDescription}"
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  setValidationResult(null)
-                  setAiAnalysis(null)
-                }}
-                className="btn-secondary"
-              >
-                Cerrar
-              </button>
-              {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
                 <button
-                  onClick={() => {
-                    handleGenerateTests(selectedStory.id)
-                    setValidationResult(null)
-                    setAiAnalysis(null)
-                  }}
-                  className="btn-primary"
-                  disabled={generatingTests}
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
-                  {generatingTests ? 'Generando...' : 'Generar Suite de Pruebas'}
+                  ✕
                 </button>
-              )}
+              </div>
+            </div>
+
+            {/* Contenido: 2 columnas */}
+            <div className="flex-1 overflow-y-auto flex">
+              {/* Columna izquierda: HDU (editable) */}
+              <div className="w-2/5 border-r border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
+                {selectedStory && !isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        {selectedStory.displayId && (
+                          <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                            {selectedStory.displayId}
+                          </span>
+                        )}
+                        <h3 className="font-medium text-gray-900 dark:text-white mt-1">
+                          {selectedStory.title}
+                        </h3>
+                      </div>
+                      <button
+                        onClick={handleStartEdit}
+                        className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded hover:bg-blue-200 shrink-0"
+                      >
+                        ✏️ Editar
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      {selectedStory.description}
+                    </p>
+                    <div className="text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Prioridad:</span>
+                        <span className="font-medium">{selectedStory.priority}</span>
+                      </div>
+                      {selectedStory.storyPoints && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Story Points:</span>
+                          <span className="font-medium">{selectedStory.storyPoints}</span>
+                        </div>
+                      )}
+                    </div>
+                    {selectedStory.acceptanceCriteria.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Criterios de aceptación:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.acceptanceCriteria.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {selectedStory.definitionOfDone && selectedStory.definitionOfDone.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Definition of Done:</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {selectedStory.definitionOfDone.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {[
+                      { label: 'Notas Técnicas:', items: selectedStory.technicalNotes },
+                      { label: 'Evidencias:', items: selectedStory.evidences },
+                      { label: 'Dependencias:', items: selectedStory.dependencies },
+                    ].map(({ label, items }) => items && items.length > 0 && (
+                      <div key={label}>
+                        <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
+                        <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          {items.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="text-gray-400">•</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedStory && isEditing && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                        {selectedStory.displayId}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={handleSaveHdu}
+                          disabled={savingHdu}
+                          className="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded hover:bg-green-200 disabled:opacity-50"
+                        >
+                          {savingHdu ? '⏳' : '💾 Guardar'}
+                        </button>
+                        <button
+                          onClick={() => setIsEditing(false)}
+                          className="px-2 py-1 text-xs bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded hover:bg-gray-200"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Título</label>
+                      <input
+                        type="text"
+                        value={editFormData.title}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, title: e.target.value }))}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Descripción</label>
+                      <textarea
+                        value={editFormData.description}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                        rows={3}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Feature</label>
+                      <select
+                        value={editFeatureId}
+                        onChange={(e) => setEditFeatureId(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin feature...</option>
+                        {editFeatures.map((f) => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Suite de pruebas</label>
+                      <select
+                        value={editSuiteId}
+                        onChange={(e) => setEditSuiteId(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin suite...</option>
+                        {editSuites.map((s) => (
+                          <option key={s.id} value={s.id}>{s.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Asignado a</label>
+                      <select
+                        value={editAssignee}
+                        onChange={(e) => setEditAssignee(e.target.value)}
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Sin asignar</option>
+                        {githubCollaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Labels (coma)</label>
+                      <input
+                        type="text"
+                        value={editLabels}
+                        onChange={(e) => setEditLabels(e.target.value)}
+                        placeholder="frontend, p1, qa"
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Rama</label>
+                      <input
+                        type="text"
+                        list="github-branches"
+                        value={editBranchName}
+                        onChange={(e) => setEditBranchName(e.target.value)}
+                        placeholder="Selecciona o escribe una rama"
+                        className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                      <datalist id="github-branches">
+                        {editBranches.map((branch) => <option key={branch} value={branch} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Prioridad</label>
+                      <select
+                        value={editFormData.priority}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          <option value="HIGH">Alta</option>
+                          <option value="MEDIUM">Media</option>
+                          <option value="LOW">Baja</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-500">Story Points</label>
+                        <select
+                          value={editFormData.storyPoints ?? ''}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, storyPoints: e.target.value ? Number(e.target.value) : null }))}
+                          className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          <option value="">Sin definir</option>
+                          {[1, 2, 3, 5, 8, 13, 21].map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Criterios de aceptación</label>
+                      {editFormData.acceptanceCriteria.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newCriteria = [...editFormData.acceptanceCriteria]
+                              newCriteria[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newCriteria = editFormData.acceptanceCriteria.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, acceptanceCriteria: newCriteria }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, acceptanceCriteria: [...prev.acceptanceCriteria, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio
+                      </button>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Definition of Done (DoD)</label>
+                      {editFormData.definitionOfDone.map((c, i) => (
+                        <div key={i} className="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            value={c}
+                            onChange={(e) => {
+                              const newDod = [...editFormData.definitionOfDone]
+                              newDod[i] = e.target.value
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const newDod = editFormData.definitionOfDone.filter((_, idx) => idx !== i)
+                              setEditFormData(prev => ({ ...prev, definitionOfDone: newDod }))
+                            }}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditFormData(prev => ({ ...prev, definitionOfDone: [...prev.definitionOfDone, ''] }))}
+                        className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        + Agregar criterio DoD
+                      </button>
+                    </div>
+                    {([
+                      { field: 'technicalNotes' as const, label: 'Notas Técnicas', placeholder: 'Nota técnica' },
+                      { field: 'evidences' as const, label: 'Evidencias', placeholder: 'Link / captura / log' },
+                      { field: 'dependencies' as const, label: 'Dependencias', placeholder: 'Issue / servicio / equipo' },
+                    ]).map(({ field, label, placeholder }) => (
+                      <div key={field}>
+                        <label className="text-xs font-medium text-gray-500">{label}</label>
+                        {editFormData[field].map((c, i) => (
+                          <div key={i} className="flex gap-1 mt-1">
+                            <input
+                              type="text"
+                              value={c}
+                              onChange={(e) => updateListItem(field, i, e.target.value)}
+                              className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              placeholder={placeholder}
+                            />
+                            <button
+                              onClick={() => removeListItem(field, i)}
+                              className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => addListItem(field)}
+                          className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                        >
+                          + Agregar {label.toLowerCase()}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Columna derecha: Análisis */}
+              <div className="w-3/5 p-4 space-y-4 overflow-y-auto">
+                {/* Score */}
+                <div className={`p-3 rounded-lg text-center ${validationResult.isReady ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}>
+                  <div className="text-2xl font-bold">
+                    {validationResult.score}%
+                  </div>
+                  <div className={`text-xs font-medium ${validationResult.isReady ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
+                    {validationResult.isReady ? '✓ Lista para pruebas' : '✗ Necesita mejoras'}
+                  </div>
+                </div>
+
+                {/* Criterios fallidos */}
+                {(() => {
+                  const failedChecks = validationResult.checklist.filter(item => !item.passed);
+                  if (failedChecks.length === 0) return (
+                    <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Todos los criterios pasaron</p>
+                  );
+                  return (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                        ⚠️ Por mejorar ({failedChecks.length})
+                      </h3>
+                      {failedChecks.map((item) => (
+                        <div key={item.id} className="p-2 bg-red-50 dark:bg-red-900/30 rounded border border-red-200 dark:border-red-800">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium">{item.name}</span>
+                            {item.suggestedFix && selectedStory && (
+                              <button
+                                onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
+                                disabled={applyingFix === selectedStory.id}
+                                className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
+                              >
+                                ✨ Aplicar
+                              </button>
+                            )}
+                          </div>
+                          {item.suggestion && (
+                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                              💡 {item.suggestion}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Criterios pasados */}
+                {(() => {
+                  const passedChecks = validationResult.checklist.filter(item => item.passed);
+                  if (passedChecks.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {passedChecks.map((item) => (
+                        <span key={item.id} className="px-2 py-0.5 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">
+                          ✓ {item.name}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Análisis IA */}
+                {aiAnalysis && (
+                  <details className="group" open={false}>
+                    <summary className="cursor-pointer text-xs font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-1">
+                      🤖 Análisis IA ({aiAnalysis.score}%)
+                      <span className="text-xs text-gray-400 group-open:hidden">click para expandir</span>
+                    </summary>
+                    <div className="mt-2 space-y-3 pl-3 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
+                      {aiAnalysis.missingElements?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Elementos faltantes:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.missingElements.map((elem: string, i: number) => (
+                              <li key={i}>{elem}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.suggestions?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Sugerencias:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.suggestions.map((sug: string, i: number) => (
+                              <li key={i}>{sug}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.riskAreas?.length > 0 && (
+                        <div>
+                          <p className="font-medium text-gray-600 dark:text-gray-400">Riesgos:</p>
+                          <ul className="text-gray-500 dark:text-gray-400 list-disc list-inside space-y-1">
+                            {aiAnalysis.riskAreas.map((risk: string, i: number) => (
+                              <li key={i}>{risk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+
+            {/* Botones fijos */}
+            <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <div className="flex justify-end space-x-3">
+                {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
+                  <button
+                    onClick={() => {
+                      handleGenerateTests(selectedStory.id);
+                      setValidationResult(null);
+                      setAiAnalysis(null);
+                    }}
+                    className="btn-primary text-sm"
+                    disabled={generatingTests}
+                  >
+                    {generatingTests ? '⏳ ...' : '🧪 Generar Pruebas'}
+                  </button>
+                )}
+                <button
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  className="btn-secondary text-sm"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -726,8 +1449,8 @@ export default function UserStoriesPage() {
                   value={formData.projectId}
                   onChange={async (e) => {
                     const projectId = e.target.value
-                    setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '' }))
-                    if (projectId) await fetchEpics(projectId)
+                    if (projectId) await fetchGithubOptions(projectId)
+                    if (projectId) await fetchTestSuites(projectId)
                   }}
                   className="input-field"
                   required
@@ -776,6 +1499,18 @@ export default function UserStoriesPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Suite de pruebas</label>
+                <select
+                  value={formData.testSuiteId}
+                  onChange={(e) => setFormData(prev => ({ ...prev, testSuiteId: e.target.value }))}
+                  className="input-field mt-1"
+                >
+                  <option value="">Sin suite...</option>
+                  {editSuites.map((suite) => <option key={suite.id} value={suite.id}>{suite.title}</option>)}
+                </select>
               </div>
 
               <div>
@@ -870,6 +1605,8 @@ export default function UserStoriesPage() {
                 </div>
               </div>
 
+              {renderEnrichedFormFields()}
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
@@ -960,6 +1697,17 @@ export default function UserStoriesPage() {
                   >
                     {generatingE2E === story.id ? 'Generando E2E...' : 'Descargar Playwright'}
                   </button>
+                  {/* Botón Push a GitHub (solo para HDUs importadas de GitHub) */}
+                  {story.externalSystem === 'GITHUB' && (
+                    <button
+                      onClick={() => handlePushHdu(story.id)}
+                      className="px-3 py-1 text-sm bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={pushingHdu === story.id}
+                      title="Sincronizar cambios con el issue de GitHub"
+                    >
+                      {pushingHdu === story.id ? '⏳' : '⬆️ Push a GitHub'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

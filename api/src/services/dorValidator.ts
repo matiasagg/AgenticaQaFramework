@@ -14,6 +14,21 @@
  * - No ambigüedad en los requisitos
  */
 
+/**
+ * Parche concreto que el usuario puede "aplicar" para corregir un criterio DoR.
+ *
+ * Se usa para el botón "Aplicar mejora" del reporte DoR: en lugar de que el
+ * usuario edite manualmente la HDU, el sistema le ofrece el cambio listo.
+ *
+ * @example
+ * // Story points no definidos → sugerir 5
+ * { field: 'storyPoints', value: 5 }
+ */
+export interface DorSuggestedFix {
+  field: 'title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints';
+  value: string | string[] | number;
+}
+
 export interface DorCheckItem {
   id: string;
   name: string;
@@ -21,6 +36,38 @@ export interface DorCheckItem {
   passed: boolean;
   weight: number; // Peso del criterio (0-100)
   suggestion?: string;
+  /**
+   * Valor real de la HDU que este criterio evaluó (HDU-012).
+   *
+   * Permite renderizar el reporte DoR "punto a punto": el usuario ve qué
+   * dato concreto de su HDU fue analizado por cada criterio, en lugar de
+   * sólo el nombre del criterio y el resultado ✓/✗.
+   *
+   * - string: título, prioridad, descripción, story points
+   * - string[]: criterios de aceptación / términos ambiguos encontrados
+   * - undefined: el dato no está definido en la HDU (ej: sin story points)
+   */
+  evaluatedValue?: string | string[];
+  /**
+   * Cambio sugerido para "aplicar" la mejora a la HDU (HDU-012).
+   * Sólo se define cuando el valor correcto es determinable de forma segura.
+   */
+  suggestedFix?: DorSuggestedFix;
+}
+
+/**
+ * Recomendación vinculada a un punto concreto del checklist DoR (HDU-012).
+ *
+ * A diferencia de `recommendations` (lista plana de strings), esta estructura
+ * indica a QUÉ criterio de la HDU pertenece cada mejora, tanto si viene de las
+ * reglas estáticas (`source: 'rules'`) como del análisis de IA (`source: 'ai'`).
+ */
+export interface DorRecommendation {
+  checkId: string;
+  checkName: string;
+  message: string;
+  source: 'rules' | 'ai';
+  suggestedFix?: DorSuggestedFix;
 }
 
 export interface DorValidationResult {
@@ -28,7 +75,14 @@ export interface DorValidationResult {
   isReady: boolean;
   checklist: DorCheckItem[];
   summary: string;
+  /**
+   * Lista plana de recomendaciones (se mantiene por compatibilidad con el
+   * frontend y consumidores previos). Para ver el punto asociado usar
+   * `recommendationsDetailed`.
+   */
   recommendations: string[];
+  /** Recomendaciones vinculadas a su punto del checklist (HDU-012). */
+  recommendationsDetailed: DorRecommendation[];
 }
 
 export interface UserStoryInput {
@@ -57,7 +111,7 @@ export function validateDoR(userStory: UserStoryInput): DorValidationResult {
   }
 
   // 2. Validar descripción con formato estándar
-  const descriptionCheck = validateDescription(userStory.description);
+  const descriptionCheck = validateDescription(userStory.description, userStory.title);
   checklist.push(descriptionCheck);
   if (!descriptionCheck.passed && descriptionCheck.suggestion) {
     recommendations.push(descriptionCheck.suggestion);
@@ -120,12 +174,26 @@ export function validateDoR(userStory: UserStoryInput): DorValidationResult {
     ? `La HDU cumple con los criterios DoR (${passedCount}/${checklist.length} criterios pasados, score: ${score}%)`
     : `La HDU no cumple con los criterios DoR (${passedCount}/${checklist.length} criterios pasados, score: ${score}%). Se requiere score >= 70%`;
 
+  // Construir recomendaciones detalladas vinculadas a cada punto del checklist
+  // (HDU-012). Cada mejora indica a QUÉ criterio de la HDU pertenece, para que
+  // el reporte pueda mostrarse "punto a punto" y ofrecer el botón "Aplicar".
+  const recommendationsDetailed: DorRecommendation[] = checklist
+    .filter((item) => !item.passed && item.suggestion)
+    .map((item) => ({
+      checkId: item.id,
+      checkName: item.name,
+      message: item.suggestion as string,
+      source: 'rules' as const,
+      suggestedFix: item.suggestedFix,
+    }));
+
   return {
     score,
     isReady,
     checklist,
     summary,
     recommendations,
+    recommendationsDetailed,
   };
 }
 
@@ -137,7 +205,7 @@ function validateTitle(title: string): DorCheckItem {
   const maxLength = 100;
   const hasMinLength = title.length >= minLength;
   const hasValidLength = title.length <= maxLength;
-  const isDescriptive = !/^(feature|bug|task|story)\s*$/i.test(title.trim());
+  const isDescriptive = !/^(feature|bug|task|story)(?:\s+(?:task|story|hdu|item))?\s*$/i.test(title.trim());
 
   const passed = hasMinLength && hasValidLength && isDescriptive;
 
@@ -147,6 +215,8 @@ function validateTitle(title: string): DorCheckItem {
     description: 'El título debe tener entre 10 y 100 caracteres y ser descriptivo',
     passed,
     weight: 15,
+    // Valor real de la HDU evaluado por este criterio (HDU-012)
+    evaluatedValue: title,
     suggestion: passed ? undefined : 
       !hasMinLength ? 'El título es muy corto. Debe tener al menos 10 caracteres.' :
       !hasValidLength ? 'El título es muy largo. Debe tener máximo 100 caracteres.' :
@@ -189,20 +259,20 @@ function normalizeDescriptionText(raw: string): string {
  *    **Quiero** [acción]
  *    **Para** [beneficio]"
  */
-function validateDescription(description: string): DorCheckItem {
+function validateDescription(description: string, title = ''): DorCheckItem {
   // Normalizamos el texto para tolerar Markdown y descripciones multilínea
   const normalizedDescription = normalizeDescriptionText(description);
 
   // Formato en español: "Como ..., quiero ..., para ..."
-  const formatRegex = /como\s+.+?,\s*quiero\s+.+?,\s*para\s+.+/i;
+  const formatRegex = /como\s+.+?\s*,?\s*quiero\s+.+?\s*,?\s*para\s+.+/i;
   // Formato en inglés: "As ..., I want ..., so that ..."
-  const altFormatRegex = /as\s+.+?,\s*i\s+want\s+.+?,\s*so\s+that\s+.+/i;
+  const altFormatRegex = /as\s+.+?\s*,?\s*i\s+want\s+.+?\s*,?\s*so\s+that\s+.+/i;
 
   // La HDU de GitHub puede incluir los formatos como headers separados:
   // "**ID:** ...", "**Prioridad:** ..." antes de llegar a la parte **Como**.
   // Con la normalización los saltos y negritas ya fueron resueltos.
   const hasFormat = formatRegex.test(normalizedDescription) || altFormatRegex.test(normalizedDescription);
-  const minLength = description.length >= 25;
+  const minLength = description.length >= 50;
 
   const passed = hasFormat && minLength;
 
@@ -212,6 +282,15 @@ function validateDescription(description: string): DorCheckItem {
     description: 'La descripción debe seguir el formato: "Como [usuario], quiero [acción], para [beneficio]"',
     passed,
     weight: 25,
+    // Valor real evaluado: la descripción de la HDU (HDU-012)
+    evaluatedValue: description,
+    // Fix determinable: si falla sólo por formato, ofrecemos una plantilla base
+    suggestedFix: !passed && !hasFormat
+      ? {
+          field: 'description',
+          value: `Como usuario QA, quiero ${title.trim().toLowerCase() || '[acción específica]'}, para poder validar el resultado esperado y entregar valor al usuario.`,
+        }
+      : undefined,
     suggestion: passed ? undefined :
       !hasFormat
         ? 'Usa el formato estándar: "Como [rol], quiero [acción], para [beneficio]"'
@@ -238,6 +317,8 @@ function validateAcceptanceCriteria(criteria: string[]): DorCheckItem {
     description: 'Debe haber al menos 1 criterio de aceptación con 10 o más caracteres',
     passed,
     weight: 25,
+    // Valor real evaluado: la lista de criterios de aceptación de la HDU (HDU-012)
+    evaluatedValue: criteria,
     suggestion: passed ? undefined :
       !hasCriteria
         ? 'Agrega criterios de aceptación para definir cuándo la historia está completa.'
@@ -258,6 +339,10 @@ function validatePriority(priority: string): DorCheckItem {
     description: 'La historia debe tener una prioridad válida (HIGH, MEDIUM, LOW)',
     passed: isValid,
     weight: 10,
+    // Valor real evaluado: la prioridad de la HDU (HDU-012)
+    evaluatedValue: priority || undefined,
+    // Fix determinable: si no es válida, sugerimos MEDIUM por defecto
+    suggestedFix: isValid ? undefined : { field: 'priority', value: 'MEDIUM' },
     suggestion: isValid ? undefined : 'Asigna una prioridad válida: HIGH, MEDIUM o LOW.',
   };
 }
@@ -276,6 +361,10 @@ function validateStoryPoints(storyPoints?: number): DorCheckItem {
     description: 'La historia debe tener una estimación en story points (Fibonacci: 1,2,3,5,8,13,21)',
     passed: isValid,
     weight: 10,
+    // Valor real evaluado: los story points de la HDU o undefined si no hay (HDU-012)
+    evaluatedValue: hasPoints ? String(storyPoints) : undefined,
+    // Fix determinable: sugerimos 5 (valor Fibonacci neutro) cuando no hay puntos
+    suggestedFix: isValid ? undefined : { field: 'storyPoints', value: 5 },
     suggestion: isValid ? undefined :
       !hasPoints ? 'Asigna story points usando la secuencia Fibonacci (1,2,3,5,8,13,21).' :
       'Usa valores Fibonacci para story points: 1,2,3,5,8,13,21.',
@@ -339,6 +428,8 @@ function validateNoAmbiguity(description: string): DorCheckItem {
     description: 'La descripción no debe contener términos ambiguos o subjetivos',
     passed,
     weight: 10,
+    // Valor real evaluado: términos ambiguos hallados en la descripción (HDU-012)
+    evaluatedValue: foundTerms.length > 0 ? foundTerms : undefined,
     suggestion: passed ? undefined :
       `Evita términos ambiguos: ${foundTerms.join(', ')}. Sé específico en los requisitos.`,
   };
@@ -353,15 +444,13 @@ function validateNoAmbiguity(description: string): DorCheckItem {
  */
 function validateTestableCriteria(criteria: string[]): DorCheckItem {
   const testableKeywords = [
-    // Verbos modales en español/inglés
-    'debe', 'debería', 'deberá', 'should', 'must', 'will',
     // Verbos de verificación
     'verificar', 'comprobar', 'validar', 'check', 'verify',
     // Verbos de acción/resultado observable
     'mostrar', 'muestra', 'muestre', 'presentar', 'desplegar', 'display',
     'generar', 'genera', 'genere', 'crear', 'crea', 'retornar', 'return',
     'enviar', 'envía', 'envie', 'send', 'listar', 'lista', 'listar',
-    'actualiza', 'actualizar', 'permita', 'permitir', 'permite',
+    'actualiza', 'actualizar', 'permita', 'permitir', 'permite', 'puede',
     'enviar', 'envía', 'recibir', 'recibe', 'cargar', 'descargar',
   ];
 
@@ -379,6 +468,8 @@ function validateTestableCriteria(criteria: string[]): DorCheckItem {
     description: 'Al menos un criterio de aceptación debe contener verbos de acción accionables',
     passed,
     weight: 5,
+    // Valor real evaluado: los criterios de aceptación revisados (HDU-012)
+    evaluatedValue: criteria,
     suggestion: passed ? undefined :
       'Usa verbos de acción en los criterios: debe, verificar, comprobar, mostrar, generar, retornar, enviar, etc.',
   };

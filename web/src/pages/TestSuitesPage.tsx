@@ -13,9 +13,10 @@ export default function TestSuitesPage() {
   const [suites, setSuites] = useState<SuiteWithPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ title: '', description: '', projectId: '', testPlanId: '' })
+  const [form, setForm] = useState({ title: '', description: '', projectId: '', testPlanId: '', userStoryId: '' })
   const [projects, setProjects] = useState<Project[]>([])
   const [plans, setPlans] = useState<TestPlan[]>([])
+  const [userStories, setUserStories] = useState<Array<{ id: string; displayId?: string | null; title: string }>>([])
   const [editingSuite, setEditingSuite] = useState<SuiteWithPlan | null>(null)
 
    useEffect(() => {
@@ -76,6 +77,7 @@ export default function TestSuitesPage() {
         description: form.description,
         projectId: form.projectId,
         testPlanId: form.testPlanId,
+        userStoryId: form.userStoryId || undefined,
       })
       // Refrescar todas las suites
       const [suitesResponse, plansResponse] = await Promise.all([
@@ -96,7 +98,7 @@ export default function TestSuitesPage() {
       })
       setSuites(flattenedSuites)
       setShowForm(false)
-      setForm({ title: '', description: '', projectId: '', testPlanId: '' })
+      setForm({ title: '', description: '', projectId: '', testPlanId: '', userStoryId: '' })
     } catch (err) {
       console.error('Error creating suite', err)
     } finally {
@@ -107,7 +109,23 @@ export default function TestSuitesPage() {
   const openEdit = (suite: SuiteWithPlan) => {
     setEditingSuite(suite)
     setShowForm(true)
-    setForm({ title: suite.title, description: suite.description || '', projectId: suite.projectId, testPlanId: suite.testPlanId || '' })
+    setForm({ title: suite.title, description: suite.description || '', projectId: suite.projectId, testPlanId: suite.testPlanId || '', userStoryId: suite.userStoryId || '' })
+    loadProjectOptions(suite.projectId)
+  }
+
+  const loadProjectOptions = async (projectId: string) => {
+    try {
+      const [plansResponse, storiesResponse] = await Promise.all([
+        testPlansApi.getAll(projectId),
+        api.get('/user-stories', { params: { projectId } }),
+      ])
+      setPlans(plansResponse.testPlans || plansResponse)
+      setUserStories(storiesResponse.data.userStories || [])
+    } catch (err) {
+      console.error('Error fetching project options', err)
+      setPlans([])
+      setUserStories([])
+    }
   }
 
   const handleUpdate = async () => {
@@ -148,14 +166,18 @@ export default function TestSuitesPage() {
   }
 
   const handleProjectChange = async (projectId: string) => {
-    setForm({ ...form, projectId, testPlanId: '' })
-    try {
-      const res = await testPlansApi.getAll(projectId)
-      setPlans(res.testPlans || res)
-    } catch (err) {
-      console.error('Error fetching plans for project', err)
-      setPlans([])
-    }
+    setForm({ ...form, projectId, testPlanId: '', userStoryId: '', title: '' })
+    await loadProjectOptions(projectId)
+  }
+
+  const handleUserStoryChange = (userStoryId: string) => {
+    const story = userStories.find((item) => item.id === userStoryId)
+    const hduRef = story?.displayId || story?.id || ''
+    setForm({
+      ...form,
+      userStoryId,
+      title: story ? `${hduRef} - ${story.title.replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '').trim()}` : '',
+    })
   }
 
   const handleDelete = async (id: string) => {
@@ -189,11 +211,16 @@ export default function TestSuitesPage() {
       {showForm && (
         <div className="card p-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input className="input-field" placeholder="Título" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             <select className="input-field" value={form.projectId} onChange={(e) => handleProjectChange(e.target.value)}>
               <option value="">Selecciona proyecto</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <select className="input-field" value={form.userStoryId} onChange={(e) => handleUserStoryChange(e.target.value)}>
+              <option value="">Selecciona HDU (opcional)</option>
+              {userStories.map((story) => (
+                <option key={story.id} value={story.id}>{story.displayId || story.id} - {story.title}</option>
               ))}
             </select>
             <select className="input-field" value={form.testPlanId} onChange={(e) => setForm({ ...form, testPlanId: e.target.value })}>
@@ -202,6 +229,15 @@ export default function TestSuitesPage() {
                 <option key={pl.id} value={pl.id}>{pl.name}</option>
               ))}
             </select>
+          </div>
+          <div className="mt-3">
+            <input
+              className="input-field"
+              placeholder="Título de la suite"
+              value={form.title}
+              readOnly={Boolean(form.userStoryId)}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
           </div>
           <div className="mt-3">
             <textarea className="input-field" placeholder="Descripción" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />

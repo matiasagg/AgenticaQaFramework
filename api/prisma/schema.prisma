@@ -212,8 +212,14 @@ model BugReport {
   actualResult    String
   environment     String?
   assignee        String?
+  labels          String[] @default([])
+  branchName      String?
   jiraId          String?
   githubId        String?
+  dorScore        Int?
+  dorChecklist    Json?
+  isReady         Boolean  @default(false)
+  staticAnalysis  Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -311,6 +317,12 @@ model UserStory {
   title           String
   description     String
   acceptanceCriteria String[]
+  // Criterios de Definition of Done importados del issue (sección "Definition of Done")
+  definitionOfDone String[] @default([])
+  // Campos enriquecidos de la HDU (secciones del issue con campo propio)
+  technicalNotes   String[] @default([]) // Notas Técnicas
+  evidences        String[] @default([]) // Evidencias (links, capturas, logs)
+  dependencies     String[] @default([]) // Dependencias (issues, servicios, equipos)
   priority        Priority @default(MEDIUM)
   storyPoints     Int?
   status          UserStoryStatus @default(NEW)
@@ -335,6 +347,9 @@ model UserStory {
   // Workflow / lifecycle fields
   workflowState   UserStoryStatus @default(NEW)
   lastStatusChangeAt DateTime?
+  // Asignación y etiquetas (sincronizables con GitHub)
+  assignee        String? // Responsable de la HDU (nombre o username)
+  labels          String[] @default([]) // Etiquetas (labels de GitHub)
   // GitHub integration fields
   branchName      String?
   prNumber        String?

@@ -6,6 +6,7 @@ import { Router, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
+import { buildTestSuiteTitle } from '../services/testSuiteGenerator';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -37,8 +38,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
   for (const plan of testPlans) {
     plan.testSuites = plan.testSuites.map((suite) => {
       if (suite.userStory) {
-        const hduRef = suite.userStory.displayId || suite.userStory.id
-        const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+        const expectedTitle = buildTestSuiteTitle(suite.userStory.displayId, suite.userStory.title, suite.userStory.id)
         if (suite.title !== expectedTitle) {
           return { ...suite, title: expectedTitle }
         }
@@ -97,8 +97,7 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   // Generar título dinámico para suites basado en displayId actual de la HDU
   testPlan.testSuites = testPlan.testSuites.map((suite) => {
     if (suite.userStory) {
-      const hduRef = suite.userStory.displayId || suite.userStory.id
-      const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+      const expectedTitle = buildTestSuiteTitle(suite.userStory.displayId, suite.userStory.title, suite.userStory.id)
       if (suite.title !== expectedTitle) {
         return { ...suite, title: expectedTitle }
       }

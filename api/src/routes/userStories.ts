@@ -4,13 +4,14 @@
  * Endpoints para gestionar Historias de Usuario:
  * - CRUD de HDUs
  * - Validación DoR (Definition of Ready)
+ * - Aplicar mejoras DoR (HDU-012)
  * - Generación de suites de pruebas funcionales
  */
 import { Router, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
-import { validateDoR, UserStoryInput } from '../services/dorValidator';
+import { validateDoR, UserStoryInput, DorRecommendation } from '../services/dorValidator';
 import { generateTestSuite, generatePlaywrightSpec, UserStoryForGeneration } from '../services/testSuiteGenerator';
 import { analyzeUserStoryWithAI } from '../services/geminiAI';
 import {
@@ -18,6 +19,8 @@ import {
   buildAiStoryRecommendations,
   normalizeExternalStatus,
 } from '../services/storyWorkflow';
+import { updateGitHubIssue, buildIssueBodyFromHdu, buildGitHubHduTitle } from '../services/githubIntegration';
+import { decryptApiKey } from '../utils/encryption';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -60,7 +63,23 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
  * Crea una nueva historia de usuario (HDU)
  */
 router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, projectId, featureId } = req.body;
+  const {
+    title,
+    description,
+    acceptanceCriteria,
+    priority,
+    storyPoints,
+    projectId,
+    featureId,
+    testSuiteId,
+    definitionOfDone,
+    technicalNotes,
+    evidences,
+    dependencies,
+    assignee,
+    labels,
+    branchName,
+  } = req.body;
 
   // Validar campos requeridos
   if (!title || !description || !acceptanceCriteria || !projectId || !featureId) {
@@ -90,6 +109,17 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     throw new ApiError('Feature no encontrada o no pertenece al proyecto', 404);
   }
 
+  let suiteToConnect: { id: string } | null = null;
+  if (testSuiteId) {
+    suiteToConnect = await prisma.testSuite.findFirst({
+      where: { id: testSuiteId, projectId },
+      select: { id: true },
+    });
+    if (!suiteToConnect) {
+      throw new ApiError('Suite de pruebas no encontrada o no pertenece al proyecto', 404);
+    }
+  }
+
   // Calcular número correlativo para la HDU
   const lastHdu = await prisma.userStory.findFirst({
     orderBy: { hduNumber: 'desc' },
@@ -105,10 +135,18 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       acceptanceCriteria,
       priority: priority || 'MEDIUM',
       storyPoints,
+      definitionOfDone: Array.isArray(definitionOfDone) ? definitionOfDone : [],
+      technicalNotes: Array.isArray(technicalNotes) ? technicalNotes : [],
+      evidences: Array.isArray(evidences) ? evidences : [],
+      dependencies: Array.isArray(dependencies) ? dependencies : [],
       projectId,
       featureId,
       epicId: feature.epicId,
       userId: req.user!.id,
+      assignee: assignee || null,
+      labels: Array.isArray(labels) ? labels : [],
+      branchName: branchName || null,
+      ...(suiteToConnect ? { testSuite: { connect: { id: suiteToConnect.id } } } : {}),
       status: 'NEW',
       syncStatus: 'UNSYNCED',
       hduNumber: nextHduNumber,
@@ -118,6 +156,7 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
       project: true,
       epic: true,
       feature: true,
+      testSuite: true,
     },
   });
 
@@ -151,11 +190,12 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
  * Actualiza una historia de usuario
  */
 router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { title, description, acceptanceCriteria, priority, storyPoints, status, featureId } = req.body;
+  const { title, description, acceptanceCriteria, definitionOfDone, technicalNotes, evidences, dependencies, priority, storyPoints, status, featureId, testSuiteId, assignee, labels, branchName } = req.body;
 
   // Verificar que la HDU existe y pertenece al usuario
   const existingStory = await prisma.userStory.findFirst({
     where: { id: req.params.id, userId: req.user!.id },
+    include: { testSuite: { select: { id: true } } },
   });
   if (!existingStory) {
     throw new ApiError('Historia de usuario no encontrada', 404);
@@ -165,9 +205,44 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   if (title !== undefined) updateData.title = title
   if (description !== undefined) updateData.description = description
   if (acceptanceCriteria !== undefined) updateData.acceptanceCriteria = { set: acceptanceCriteria }
+  if (definitionOfDone !== undefined) updateData.definitionOfDone = { set: definitionOfDone }
+  if (technicalNotes !== undefined) updateData.technicalNotes = { set: technicalNotes }
+  if (evidences !== undefined) updateData.evidences = { set: evidences }
+  if (dependencies !== undefined) updateData.dependencies = { set: dependencies }
   if (priority !== undefined) updateData.priority = priority
   if (storyPoints !== undefined) updateData.storyPoints = storyPoints
   if (status !== undefined) updateData.status = status
+  if (assignee !== undefined) updateData.assignee = assignee
+  if (labels !== undefined) updateData.labels = { set: labels }
+  if (branchName !== undefined) updateData.branchName = branchName
+
+  // Cualquier cambio en los datos de la HDU invalida el análisis DoR anterior.
+  updateData.staticAnalysis = null
+
+  // Any local change to a GitHub-linked HDU must be explicitly pushed back to
+  // GitHub. Without this marker the UI reports the record as synchronized even
+  // though assignee, labels or branch metadata changed locally.
+  if (existingStory.externalSystem === 'GITHUB') updateData.syncStatus = 'UNSYNCED'
+
+  // Vinculación de suite de pruebas: la relación es inversa (el FK userStoryId
+  // vive en TestSuite), por lo que aquí se actualiza la suite: se desvincula la
+  // suite actual y se asigna la nueva (si se especificó). La relación es 1:1
+  // (TestSuite.userStoryId es @unique), así que la nueva suite puede quedar
+  // libre o vinculada a otra HDU del mismo proyecto.
+  if (testSuiteId !== undefined) {
+    if (testSuiteId === null || testSuiteId === '') {
+      updateData.testSuite = { disconnect: true }
+    } else {
+      const suite = await prisma.testSuite.findFirst({
+        where: { id: testSuiteId, projectId: existingStory.projectId },
+        select: { id: true },
+      })
+      if (!suite) {
+        throw new ApiError('Suite de pruebas no encontrada o no pertenece al proyecto', 404)
+      }
+      updateData.testSuite = { connect: { id: testSuiteId } }
+    }
+  }
 
   if (featureId !== undefined) {
     if (!featureId) {
@@ -192,11 +267,26 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     updateData.epicId = feature.epicId
   }
 
-  const updatedStory = await prisma.userStory.update({
-    where: { id: req.params.id },
-    data: updateData,
-    include: { project: true, epic: true, feature: true, testSuite: true },
-  });
+  const updatedStory = (testSuiteId !== undefined && testSuiteId !== null && testSuiteId !== '')
+    ? await prisma.$transaction(async (tx) => {
+      if (existingStory.testSuite && existingStory.testSuite.id !== testSuiteId) {
+        await tx.testSuite.update({
+          where: { id: existingStory.testSuite.id },
+          data: { userStoryId: null },
+        })
+      }
+
+      return tx.userStory.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: { project: true, epic: true, feature: true, testSuite: true },
+      })
+    })
+    : await prisma.userStory.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { project: true, epic: true, feature: true, testSuite: true },
+    });
 
   res.json({ userStory: updatedStory });
 }));
@@ -255,7 +345,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
-    storyPoints: userStory.storyPoints || undefined,
+    storyPoints: userStory.storyPoints ?? undefined,
   });
 
   // ── Modo caché: devolver el análisis persistido si existe ──
@@ -271,6 +361,9 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         checklist: cached.checklist || userStory.dorChecklist || [],
         summary: cached.summary || 'Resultado de validación guardado (usando caché). Usa "Refrescar análisis" para re-evaluar con IA.',
         recommendations: cached.recommendations || [],
+        // Recomendaciones vinculadas a su punto DoR (HDU-012). Si la caché es
+        // antigua y no las tiene, se devuelve un array vacío (frontend legacy).
+        recommendationsDetailed: cached.recommendationsDetailed || [],
         cached: true,
         validatedAt: cached.validatedAt,
       };
@@ -288,7 +381,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     description: userStory.description,
     acceptanceCriteria: userStory.acceptanceCriteria,
     priority: userStory.priority,
-    storyPoints: userStory.storyPoints || undefined,
+    storyPoints: userStory.storyPoints ?? undefined,
   };
 
   // Ejecutar validación DoR estática
@@ -335,10 +428,25 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
 
   const isReady = finalScore >= 70 && validationResult.isReady;
 
-  // Combinar recomendaciones
+  // Combinar recomendaciones (lista plana, compatibilidad)
   const allRecommendations = [
     ...validationResult.recommendations,
     ...(aiAnalysis?.suggestions || []),
+  ];
+
+  // Construir recomendaciones detalladas vinculadas a su punto DoR (HDU-012):
+  // 1) Las de las reglas estáticas ya vienen con checkId/checkName.
+  // 2) Las de la IA se mapean usando `suggestionsDetailed` (checkId inferido).
+  const aiDetailed: DorRecommendation[] = (aiAnalysis?.suggestionsDetailed || []).map((s) => ({
+    checkId: s.checkId,
+    checkName: s.checkId,
+    message: s.message,
+    source: 'ai' as const,
+  }));
+
+  const allRecommendationsDetailed: DorRecommendation[] = [
+    ...validationResult.recommendationsDetailed,
+    ...aiDetailed,
   ];
 
   // Actualizar la HDU con los resultados combinados
@@ -361,9 +469,13 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         summary: validationResult.summary,
         checklist: validationResult.checklist,
         recommendations: allRecommendations,
+        // Recomendaciones vinculadas a su punto DoR (HDU-012), persistidas para
+        // servirlas desde caché y renderizar el reporte "punto a punto".
+        recommendationsDetailed: allRecommendationsDetailed,
         aiAnalysis: aiAnalysis && !aiError ? {
           score: aiAnalysis.score,
           suggestions: aiAnalysis.suggestions,
+          suggestionsDetailed: aiAnalysis.suggestionsDetailed,
           missingElements: aiAnalysis.missingElements,
           riskAreas: aiAnalysis.riskAreas,
           improvedDescription: aiAnalysis.improvedDescription,
@@ -386,6 +498,8 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       score: finalScore,
       isReady,
       recommendations: allRecommendations,
+      // Recomendaciones vinculadas a su punto DoR (HDU-012)
+      recommendationsDetailed: allRecommendationsDetailed,
       cached: false,
       validatedAt,
       nextStatus: workflowState.nextStatus,
@@ -396,6 +510,104 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     aiError,
   });
 }));
+
+/**
+ * POST /api/user-stories/:id/apply-dor-fixes
+ * Aplica uno o varios parches DoR a la HDU (HDU-012).
+ *
+ * El frontend envía los `field`/`value` que el usuario aceptó del reporte DoR
+ * (ej: storyPoints=5, priority=MEDIUM). Se reutiliza la misma lógica que el PUT
+ * para actualizar la HDU, se revalida el DoR y se marca la HDU como UNSYNCED
+ * para habilitar la sincronización posterior con GitHub.
+ *
+ * Body: { fixes: DorSuggestedFix[] }
+ */
+router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { fixes } = req.body;
+  if (!Array.isArray(fixes) || fixes.length === 0) {
+    throw new ApiError('Falta fixes (array de parches { field, value })', 400);
+  }
+
+  const existingStory = await prisma.userStory.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+  });
+  if (!existingStory) {
+    throw new ApiError('Historia de usuario no encontrada', 404);
+  }
+
+  // Construir el update a partir de los parches, validando cada campo permitido.
+  const updateData: any = {};
+  for (const fix of fixes) {
+    if (!fix || typeof fix !== 'object') continue;
+    switch (fix.field) {
+      case 'title':
+        updateData.title = String(fix.value);
+        break;
+      case 'description':
+        updateData.description = String(fix.value);
+        break;
+      case 'acceptanceCriteria':
+        updateData.acceptanceCriteria = {
+          set: Array.isArray(fix.value) ? fix.value.map(String) : [String(fix.value)],
+        };
+        break;
+      case 'priority':
+        updateData.priority = String(fix.value);
+        break;
+      case 'storyPoints':
+        updateData.storyPoints = Number(fix.value);
+        break;
+      default:
+        // Campo no reconocido: se ignora para no romper la actualización.
+        break;
+    }
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    throw new ApiError('Ninguno de los parches enviados es aplicable', 400);
+  }
+
+  // Si la HDU proviene de GitHub, marcarla como UNSYNCED para permitir el push.
+  if (existingStory.externalSystem === 'GITHUB') {
+    updateData.syncStatus = 'UNSYNCED';
+  }
+
+  // Revalidar el DoR estático con los nuevos valores (sin IA, para respuesta rápida).
+  const merged = {
+    title: updateData.title ?? existingStory.title,
+    description: updateData.description ?? existingStory.description,
+    acceptanceCriteria: updateData.acceptanceCriteria?.set ?? existingStory.acceptanceCriteria,
+    priority: updateData.priority ?? existingStory.priority,
+    storyPoints: updateData.storyPoints ?? existingStory.storyPoints ?? undefined,
+  };
+  const validationResult = validateDoR(merged);
+
+  updateData.dorScore = validationResult.score;
+  updateData.dorChecklist = JSON.parse(JSON.stringify(validationResult.checklist));
+  updateData.isReady = validationResult.isReady;
+  updateData.qualityScore = validationResult.score;
+  // Invalidar el análisis IA anterior: los datos evaluados ya cambiaron.
+  updateData.staticAnalysis = null;
+
+  const updatedStory = await prisma.userStory.update({
+    where: { id: req.params.id },
+    data: updateData,
+    include: { project: true, epic: true, feature: true, testSuite: true },
+  });
+
+  res.json({
+    userStory: updatedStory,
+    validation: {
+      ...validationResult,
+      cached: false,
+    },
+    appliedCount: Object.keys(updateData).filter(
+      (k) => !['syncStatus', 'dorScore', 'dorChecklist', 'isReady', 'qualityScore'].includes(k)
+    ).length,
+    syncStatus: updatedStory.syncStatus,
+  });
+}));
+
 /**
  * POST /api/user-stories/:id/generate-tests
  * Genera la suite de pruebas funcionales para una HDU
@@ -594,6 +806,141 @@ router.get('/:id/playwright-spec', asyncHandler(async (req: AuthenticatedRequest
   } as UserStoryForGeneration);
 
   res.json({ spec, filename: `${userStory.displayId || userStory.id}.spec.ts` });
+}));
+
+/**
+ * POST /api/user-stories/:id/push-hdu
+ * Sincroniza los cambios de la HDU con su issue de GitHub (HDU-012).
+ *
+ * Solo funciona si la HDU proviene de GitHub (externalSystem === 'GITHUB').
+ * Usa `buildIssueBodyFromHdu` para construir el cuerpo Markdown y
+ * `updateGitHubIssue` para hacer el PATCH en la API de GitHub.
+ *
+ * Body: { syncFields?: ('title' | 'description' | 'acceptanceCriteria' | 'priority' | 'storyPoints' | 'labels' | 'assignee' | 'branchName')[] }
+ * Si no se especifican campos, se sincronizan todos.
+ */
+router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { syncFields } = req.body;
+
+  // Obtener la HDU con el proyecto (necesario para el repositorio y token)
+  const userStory = await prisma.userStory.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+    include: { project: true },
+  });
+
+  if (!userStory) {
+    throw new ApiError('Historia de usuario no encontrada', 404);
+  }
+
+  // Verificar que la HDU proviene de GitHub
+  if (userStory.externalSystem !== 'GITHUB') {
+    throw new ApiError('La HDU no está vinculada a un issue de GitHub (solo se pueden sincronizar HDUs importadas de GitHub).', 400);
+  }
+
+  // Verificar que el proyecto tiene repositorio configurado
+  if (!userStory.project?.repository) {
+    throw new ApiError('El proyecto no tiene un repositorio de GitHub configurado.', 400);
+  }
+
+  // Verificar que la HDU tiene un issue number asociado
+  const issueNumber = userStory.externalId ? parseInt(userStory.externalId, 10) : NaN;
+  if (!issueNumber || isNaN(issueNumber)) {
+    throw new ApiError('La HDU no tiene un número de issue de GitHub válido.', 400);
+  }
+
+  // Obtener el token del proyecto (si está configurado)
+  const projectToken = userStory.project.githubToken
+    ? decryptApiKey(userStory.project.githubToken)
+    : undefined;
+
+  // Construir el cuerpo del issue con los datos actuales de la HDU
+  const issueBody = buildIssueBodyFromHdu({
+    title: userStory.title,
+    description: userStory.description,
+    acceptanceCriteria: userStory.acceptanceCriteria,
+    definitionOfDone: userStory.definitionOfDone,
+    technicalNotes: userStory.technicalNotes,
+    evidences: userStory.evidences,
+    dependencies: userStory.dependencies,
+    assignee: userStory.assignee,
+    labels: userStory.labels,
+    branchName: userStory.branchName,
+    priority: userStory.priority,
+    storyPoints: userStory.storyPoints,
+    displayId: userStory.displayId,
+    githubUrl: userStory.externalUrl,
+  });
+
+  // Determinar qué campos sincronizar
+  const fieldsToSync = syncFields && Array.isArray(syncFields) && syncFields.length > 0
+    ? syncFields
+    : ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints', 'labels', 'assignee', 'branchName'];
+
+  // Construir las actualizaciones para GitHub
+  const updates: { title?: string; body?: string; labels?: string[]; assignees?: string[] } = {};
+
+  // Siempre sincronizar el body (contiene descripción, criterios, prioridad, story points)
+  if (fieldsToSync.includes('description') ||
+      fieldsToSync.includes('acceptanceCriteria') ||
+      fieldsToSync.includes('priority') ||
+      fieldsToSync.includes('storyPoints') ||
+      fieldsToSync.includes('branchName')) {
+    updates.body = issueBody;
+  }
+
+  // Sincronizar título si se solicita
+  if (fieldsToSync.includes('title')) {
+    // El correlativo público del SaaS debe quedar visible al inicio del issue.
+    updates.title = buildGitHubHduTitle(userStory.displayId, userStory.title);
+  }
+
+  // Labels y asignación son propiedades nativas del issue de GitHub.
+  if (fieldsToSync.includes('labels')) {
+    updates.labels = userStory.labels;
+  }
+  if (fieldsToSync.includes('assignee')) {
+    updates.assignees = userStory.assignee ? [userStory.assignee] : [];
+  }
+
+  if (Object.keys(updates).length === 0) {
+    throw new ApiError('No se especificaron campos válidos para sincronizar.', 400);
+  }
+
+  // Llamar a la API de GitHub para actualizar el issue
+  let githubResult;
+  try {
+    githubResult = await updateGitHubIssue(
+      userStory.project.repository,
+      issueNumber,
+      updates,
+      projectToken
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ApiError(`Error al sincronizar con GitHub: ${message}`, 502);
+  }
+
+  // Marcar la HDU como sincronizada
+  const updatedStory = await prisma.userStory.update({
+    where: { id: req.params.id },
+    data: {
+      syncStatus: 'SYNCED',
+      syncedAt: new Date(),
+    },
+    include: { project: true, epic: true, feature: true, testSuite: true },
+  });
+
+  res.json({
+    message: 'HDU sincronizada con GitHub correctamente.',
+    userStory: updatedStory,
+    github: {
+      issueNumber: githubResult.number,
+      issueUrl: githubResult.html_url,
+      title: githubResult.title,
+      state: githubResult.state,
+    },
+    syncedFields: Object.keys(updates),
+  });
 }));
 
 export default router;

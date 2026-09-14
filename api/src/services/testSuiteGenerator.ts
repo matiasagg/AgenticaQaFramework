@@ -73,6 +73,23 @@ export interface UserStoryForGeneration {
 }
 
 /**
+ * Devuelve el título funcional sin el identificador que GitHub pueda haber
+ * agregado al comienzo (por ejemplo, `[HDU-028]`). El identificador oficial
+ * de la suite siempre es el displayId persistido de la HDU.
+ */
+export function getCanonicalHduTitle(title: string): string {
+  return title
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '')
+    .trim() || title.trim();
+}
+
+export function buildTestSuiteTitle(displayId: string | null | undefined, title: string, fallbackId?: string): string {
+  const hduRef = displayId || fallbackId || 'HDU';
+  return `${hduRef} - ${getCanonicalHduTitle(title)}`;
+}
+
+/**
  * Genera una suite de pruebas funcionales a partir de una HDU validada
  * 
  * @param userStory - Historia de usuario que pasó la validación DoR
@@ -115,9 +132,10 @@ export function generateTestSuite(
   // Usar siempre el identificador público cuando exista. El ID interno es un
   // fallback técnico y no debe mostrarse como referencia funcional.
   const hduRef = userStory.displayId || userStory.id
+  const canonicalTitle = getCanonicalHduTitle(userStory.title)
   return {
-    title: `${hduRef} - ${userStory.title}`,
-    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${userStory.title}" (${hduRef}). ` +
+    title: buildTestSuiteTitle(userStory.displayId, userStory.title, userStory.id),
+    description: `Suite de pruebas generada automáticamente para la historia de usuario: "${canonicalTitle}" (${hduRef}). ` +
       `Incluye ${testCases.length} casos de prueba cubriendo funcionalidad, regresión, integración y casos borde.`,
     testCases,
     coverage,

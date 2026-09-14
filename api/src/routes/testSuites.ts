@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
+import { buildTestSuiteTitle } from '../services/testSuiteGenerator';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -33,8 +34,7 @@ router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =>
   // para que las suites siempre reflejen el correlativo más reciente
   const suitesWithDynamicTitle = suites.map((suite) => {
     if (suite.userStory) {
-      const hduRef = suite.userStory.displayId || suite.userStory.id
-      const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+      const expectedTitle = buildTestSuiteTitle(suite.userStory.displayId, suite.userStory.title, suite.userStory.id)
       // Actualizar siempre que el título actual no coincida con el esperado
       if (suite.title !== expectedTitle) {
         return { ...suite, title: expectedTitle }
@@ -57,6 +57,14 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
   if (!project) throw new ApiError('Proyecto no encontrado', 404);
   const plan = await prisma.testPlan.findFirst({ where: { id: testPlanId, projectId, project: { userId: req.user!.id } } });
   if (!plan) throw new ApiError('TestPlan no encontrado', 404);
+  let linkedStory: { id: string; displayId: string | null; title: string } | null = null;
+  if (userStoryId) {
+    linkedStory = await prisma.userStory.findFirst({
+      where: { id: userStoryId, projectId, userId: req.user!.id },
+      select: { id: true, displayId: true, title: true },
+    });
+    if (!linkedStory) throw new ApiError('HDU no encontrada o no pertenece al proyecto', 404);
+  }
   if (parentSuiteId) {
     const parent = await prisma.testSuite.findFirst({ where: { id: parentSuiteId, projectId, testPlanId } });
     if (!parent) throw new ApiError('Suite padre no encontrada', 404);
@@ -64,7 +72,9 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
 
   const suite = await prisma.testSuite.create({
     data: {
-      title,
+      title: linkedStory
+        ? buildTestSuiteTitle(linkedStory.displayId, linkedStory.title, linkedStory.id)
+        : title,
       description: description || '',
       projectId,
       testPlanId,
@@ -91,8 +101,7 @@ router.get('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
 
   // Generar título dinámico basado en el displayId actual de la HDU
   if (suite.userStory) {
-    const hduRef = suite.userStory.displayId || suite.userStory.id
-    const expectedTitle = `${hduRef} - ${suite.userStory.title}`
+    const expectedTitle = buildTestSuiteTitle(suite.userStory.displayId, suite.userStory.title, suite.userStory.id)
     if (suite.title !== expectedTitle) {
       ;(suite as any).title = expectedTitle
     }

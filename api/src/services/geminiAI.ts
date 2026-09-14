@@ -32,10 +32,42 @@ interface GeminiResponse {
   };
 }
 
+/**
+ * Criterios DoR válidos que la IA puede usar para asociar una sugerencia a un
+ * punto concreto de la HDU (HDU-012). Deben coincidir con los `id` del
+ * checklist de `dorValidator.ts`.
+ */
+const DOR_CHECK_IDS = [
+  'title',
+  'description',
+  'acceptanceCriteria',
+  'priority',
+  'storyPoints',
+  'noAmbiguity',
+  'testableCriteria',
+] as const;
+
+/**
+ * Sugerencia de IA vinculada a un punto del checklist DoR (HDU-012).
+ *
+ * Permite mostrar en el reporte "punto a punto": cada sugerencia de Gemini
+ * indica a qué criterio de la HDU pertenece.
+ */
+export interface DorAiSuggestion {
+  checkId: string;
+  message: string;
+}
+
 interface DorAiAnalysis {
   score: number;
   isReady: boolean;
   suggestions: string[];
+  /**
+   * Sugerencias de IA vinculadas a un punto del checklist (HDU-012).
+   * Se construye a partir de la respuesta de Gemini; si el modelo no indica
+   * `checkId`, se intenta inferir por palabras clave o se marca 'general'.
+   */
+  suggestionsDetailed?: DorAiSuggestion[];
   improvedDescription?: string;
   missingElements: string[];
   riskAreas: string[];
@@ -208,6 +240,72 @@ function parseGeminiJson<T>(response: string): T {
 }
 
 /**
+ * Normaliza las sugerencias detalladas de la IA (HDU-012).
+ *
+ * Garantiza que cada sugerencia tenga un `checkId` válido. Estrategia:
+ * 1. Si Gemini devolvió `suggestionsDetailed`, se conservan sólo los checkId válidos.
+ * 2. Para las sugerencias planas que no tengan detalle, se infiere el punto
+ *    por palabras clave (ej: "story point" → storyPoints).
+ * 3. Si no se puede inferir, se usa 'general'.
+ *
+ * @param detailed - suggestionsDetailed crudo de Gemini (puede ser undefined/malformado)
+ * @param suggestions - Lista plana de sugerencias (siempre presente)
+ * @returns Array de DorAiSuggestion con checkId válido
+ */
+function normalizeAiSuggestions(
+  detailed: unknown,
+  suggestions: string[]
+): DorAiSuggestion[] {
+  const validIds = new Set<string>(DOR_CHECK_IDS as readonly string[]);
+  const normalized: DorAiSuggestion[] = [];
+
+  // 1. Conservar los detalles con checkId válido
+  if (Array.isArray(detailed)) {
+    for (const item of detailed) {
+      if (item && typeof item === 'object') {
+        const checkId = String((item as any).checkId || '');
+        const message = String((item as any).message || '').trim();
+        if (message && validIds.has(checkId)) {
+          normalized.push({ checkId, message });
+        } else if (message) {
+          // checkId inválido o ausente: intentamos inferir por palabras clave
+          normalized.push({ checkId: inferCheckId(message), message });
+        }
+      }
+    }
+  }
+
+  // 2. Agregar las sugerencias planas que aún no estén representadas
+  const alreadyIncluded = new Set(normalized.map((s) => s.message));
+  for (const suggestion of suggestions) {
+    if (!alreadyIncluded.has(suggestion)) {
+      normalized.push({ checkId: inferCheckId(suggestion), message: suggestion });
+    }
+  }
+
+  return normalized;
+}
+
+/**
+ * Infiere el criterio DoR al que se refiere una sugerencia de IA por palabras
+ * clave. Es un fallback tolerante cuando el modelo no devuelve `checkId`.
+ *
+ * @param message - Texto de la sugerencia
+ * @returns El `checkId` inferido o 'general' si no hay coincidencia
+ */
+function inferCheckId(message: string): string {
+  const text = message.toLowerCase();
+  if (/(story point|punto|estimaci)/.test(text)) return 'storyPoints';
+  if (/(prioridad|priority|alta|media|baja)/.test(text)) return 'priority';
+  if (/(criterio de aceptaci|acceptance)/.test(text)) return 'acceptanceCriteria';
+  if (/(ambigu|etc|quiz|específic|especific)/.test(text)) return 'noAmbiguity';
+  if (/(testeable|verbo|verificable|medible)/.test(text)) return 'testableCriteria';
+  if (/(descripci|como|quiero|para|formato)/.test(text)) return 'description';
+  if (/(título|titulo|title)/.test(text)) return 'title';
+  return 'general';
+}
+
+/**
  * Analiza una HDU usando Gemini AI para complementar la validación DoR.
  *
  * Combina validación estática (reglas) con análisis de IA (Gemini) para
@@ -246,10 +344,15 @@ Evalúa los siguientes aspectos y responde SOLO en formato JSON válido:
 
 1. score (0-100): Score general de preparación
 2. isReady (true/false): Si está lista para pruebas (score >= 80 Y no faltan elementos críticos)
-3. suggestions (array): Sugerencias específicas para mejorar la HDU
-4. improvedDescription (string, opcional): Una versión mejorada de la descripción si es necesario
-5. missingElements (array): Elementos faltantes o débiles
-6. riskAreas (array): Áreas de riesgo identificadas
+3. suggestions (array de strings): Sugerencias específicas para mejorar la HDU
+4. suggestionsDetailed (array de objetos): Cada sugerencia ASOCIADA a un punto del checklist DoR.
+   Cada objeto debe tener exactamente:
+   - checkId: uno de estos valores exactos: ${DOR_CHECK_IDS.join(', ')}
+   - message: la sugerencia concreta para ese punto
+   Usa el mismo texto que en "suggestions" pero indicando a qué criterio pertenece.
+5. improvedDescription (string, opcional): Una versión mejorada de la descripción si es necesario
+6. missingElements (array de strings): Elementos faltantes o débiles
+7. riskAreas (array de strings): Áreas de riesgo identificadas
 
 Responde SOLO con el JSON, sin markdown ni texto adicional:`;
 
@@ -260,6 +363,14 @@ Responde SOLO con el JSON, sin markdown ni texto adicional:`;
   if (typeof analysis.score !== 'number' || typeof analysis.isReady !== 'boolean' || !Array.isArray(analysis.suggestions)) {
     throw new Error('La respuesta de Gemini no tiene la estructura esperada (score, isReady, suggestions).');
   }
+
+  // Normalizar suggestionsDetailed (HDU-012): sólo aceptamos checkId válidos.
+  // Si el modelo no los devuelve, intentamos inferir el punto por palabras clave
+  // y, en último caso, los asociamos a 'general' para no perder la sugerencia.
+  analysis.suggestionsDetailed = normalizeAiSuggestions(
+    analysis.suggestionsDetailed,
+    analysis.suggestions
+  );
 
   return analysis;
 }

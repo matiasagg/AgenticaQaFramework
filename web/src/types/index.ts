@@ -18,6 +18,11 @@ export interface Bug {
   actualResult: string
   environment?: string
   assignee?: string
+  labels?: string[]
+  branchName?: string
+  dorScore?: number | null
+  isReady?: boolean
+  dorChecklist?: Array<{ id: string; name: string; passed: boolean; suggestion?: string }>
   projectId: string
   projectName?: string
   agentId?: string
