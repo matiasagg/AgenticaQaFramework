@@ -230,14 +230,6 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
   // (TestSuite.userStoryId es @unique), así que la nueva suite puede quedar
   // libre o vinculada a otra HDU del mismo proyecto.
   if (testSuiteId !== undefined) {
-    // Desvincular la suite actualmente asociada (si hay una distinta a la nueva)
-    if (existingStory.testSuite && existingStory.testSuite.id !== testSuiteId) {
-      await prisma.testSuite.update({
-        where: { id: existingStory.testSuite.id },
-        data: { userStoryId: null },
-      })
-    }
-
     if (testSuiteId === null || testSuiteId === '') {
       updateData.testSuite = { disconnect: true }
     } else {
@@ -275,11 +267,26 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
     updateData.epicId = feature.epicId
   }
 
-  const updatedStory = await prisma.userStory.update({
-    where: { id: req.params.id },
-    data: updateData,
-    include: { project: true, epic: true, feature: true, testSuite: true },
-  });
+  const updatedStory = (testSuiteId !== undefined && testSuiteId !== null && testSuiteId !== '')
+    ? await prisma.$transaction(async (tx) => {
+      if (existingStory.testSuite && existingStory.testSuite.id !== testSuiteId) {
+        await tx.testSuite.update({
+          where: { id: existingStory.testSuite.id },
+          data: { userStoryId: null },
+        })
+      }
+
+      return tx.userStory.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: { project: true, epic: true, feature: true, testSuite: true },
+      })
+    })
+    : await prisma.userStory.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { project: true, epic: true, feature: true, testSuite: true },
+    });
 
   res.json({ userStory: updatedStory });
 }));
