@@ -4,6 +4,7 @@ interface BugDorModalProps {
   bug: Bug | null
   dorResult: any
   aiAnalysis: any
+  aiError?: string | null
   onClose: () => void
   onRefresh: () => void
   isRefreshing: boolean
@@ -15,12 +16,16 @@ interface BugDorModalProps {
   onSaveBug: () => void
   onApplyFix: (fix: { field: string; value: string | string[] | number }) => void
   applyingFix: string | null
+  // Metadatos de GitHub para los combos de edición (igual que en HDU).
+  collaborators?: Array<{ login: string }>
+  branches?: string[]
 }
 
 export default function BugDorModal({
   bug,
   dorResult,
   aiAnalysis,
+  aiError,
   onClose,
   onRefresh,
   isRefreshing,
@@ -32,6 +37,8 @@ export default function BugDorModal({
   onSaveBug,
   onApplyFix,
   applyingFix,
+  collaborators = [],
+  branches = [],
 }: BugDorModalProps) {
   if (!bug || !dorResult) return null
 
@@ -182,6 +189,39 @@ export default function BugDorModal({
                     onChange={(e) => onEditFormChange({ ...editFormData, environment: e.target.value })}
                     className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                   />
+                </div>
+                {/* Metadatos de GitHub: se editan desde el DoR igual que en la HDU
+                    para que la validación y el push posterior usen datos consistentes. */}
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Asignado a</label>
+                  <select
+                    value={editFormData.assignee || ''}
+                    onChange={(e) => onEditFormChange({ ...editFormData, assignee: e.target.value })}
+                    className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    <option value="">Sin asignar</option>
+                    {collaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Labels (separados por coma)</label>
+                  <input
+                    type="text"
+                    value={(editFormData.labels || []).join(', ')}
+                    onChange={(e) => onEditFormChange({ ...editFormData, labels: e.target.value.split(',').map((label: string) => label.trim()).filter(Boolean) })}
+                    className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Rama</label>
+                  <input
+                    type="text"
+                    list="bug-dor-modal-github-branches"
+                    value={editFormData.branchName || ''}
+                    onChange={(e) => onEditFormChange({ ...editFormData, branchName: e.target.value })}
+                    className="w-full mt-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  />
+                  <datalist id="bug-dor-modal-github-branches">{branches.map((branch) => <option key={branch} value={branch} />)}</datalist>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-500">Resultado esperado</label>
@@ -343,6 +383,14 @@ export default function BugDorModal({
             )}
           </div>
         </div>
+
+            {aiError && (
+              <div className="m-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-xs">
+                <p className="font-medium">No se pudo ejecutar el análisis con IA.</p>
+                <p className="mt-1">{aiError}</p>
+                <p className="mt-1">Configura una key válida en Configuración y pulsa “Refrescar análisis”.</p>
+              </div>
+            )}
 
         {/* Botones fijos */}
         <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">

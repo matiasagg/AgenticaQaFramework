@@ -120,6 +120,15 @@ export const bugsApi = {
     return response.data
   },
 
+  /**
+   * Sincroniza los cambios del bug con su issue de GitHub vinculado.
+   * Solo funciona para bugs importados de GitHub (requieren `githubId`).
+   */
+  pushToGitHub: async (id: string) => {
+    const response = await api.post(`/bugs/${id}/push-to-github`)
+    return response.data
+  },
+
   create: async (data: {
     title: string
     description: string

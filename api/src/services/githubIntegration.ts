@@ -767,6 +767,93 @@ export function buildIssueBodyFromHdu(hdu: {
   return lines.join('\n');
 }
 
+/**
+ * Construye el título que se publica en GitHub para un bug del SaaS.
+ *
+ * A diferencia de la HDU, un bug no tiene un correlativo público (displayId),
+ * por lo que solo se limpia cualquier prefijo previo "BUG-xxx - " para evitar
+ * duplicarlo si el usuario ya lo escribió manualmente en el título.
+ *
+ * @param title - Título actual del bug en el SaaS
+ * @returns Título limpio listo para publicar en GitHub
+ */
+export function buildGitHubBugTitle(title: string): string {
+  return title
+    .replace(/^\s*BUG\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .trim();
+}
+
+/**
+ * Construye el cuerpo del issue de GitHub a partir de los datos de un bug.
+ *
+ * Genera un cuerpo Markdown estructurado con los campos del bug (pasos para
+ * reproducir, resultado esperado/actual y metadatos como severidad, entorno,
+ * asignación, labels y rama). Se usa para sincronizar los cambios del SaaS con
+ * el issue de GitHub vinculado al bug (mismo enfoque que `buildIssueBodyFromHdu`).
+ *
+ * @param bug - Datos del reporte de bug
+ * @returns Texto Markdown listo para usar como cuerpo del issue
+ */
+export function buildIssueBodyFromBug(bug: {
+  title: string;
+  description: string;
+  stepsToReproduce?: string[] | null;
+  expectedResult?: string | null;
+  actualResult?: string | null;
+  environment?: string | null;
+  severity: string;
+  assignee?: string | null;
+  labels?: string[] | null;
+  branchName?: string | null;
+  githubUrl?: string | null;
+}): string {
+  const lines: string[] = [];
+
+  // Referencia al issue original (si existe)
+  if (bug.githubUrl) {
+    lines.push(`🔗 Issue original: ${bug.githubUrl}`);
+    lines.push('');
+  }
+
+  // Descripción: se limpia de secciones que tienen campo propio para no
+  // duplicar información dentro del issue.
+  const descriptionText = cleanIssueDescription(bug.description || '');
+  if (descriptionText) {
+    lines.push(descriptionText);
+    lines.push('');
+  }
+
+  // Pasos para reproducir (lista numerada)
+  if (bug.stepsToReproduce && bug.stepsToReproduce.length > 0) {
+    lines.push('## Pasos para Reproducir');
+    lines.push('');
+    bug.stepsToReproduce.forEach((step, index) => {
+      lines.push(`${index + 1}. ${step}`);
+    });
+    lines.push('');
+  }
+
+  // Resultado esperado vs actual
+  if (bug.expectedResult || bug.actualResult) {
+    lines.push('## Resultados');
+    lines.push('');
+    if (bug.expectedResult) lines.push(`- **Resultado esperado:** ${bug.expectedResult}`);
+    if (bug.actualResult) lines.push(`- **Resultado actual:** ${bug.actualResult}`);
+    lines.push('');
+  }
+
+  // Metadatos (severidad, entorno, asignación, labels y rama de trabajo)
+  lines.push('## Metadatos');
+  lines.push('');
+  lines.push(`- **Severidad:** ${bug.severity || 'MEDIUM'}`);
+  if (bug.environment) lines.push(`- **Entorno:** ${bug.environment}`);
+  if (bug.assignee) lines.push(`- **Asignado a:** ${bug.assignee}`);
+  if (bug.labels && bug.labels.length > 0) lines.push(`- **Labels:** ${bug.labels.join(', ')}`);
+  if (bug.branchName) lines.push(`- **Rama:** \`${bug.branchName}\``);
+
+  return lines.join('\n');
+}
+
 export default {
   fetchIssues,
   fetchBranches,
@@ -777,4 +864,6 @@ export default {
   parseRepoUrl,
   updateGitHubIssue,
   buildIssueBodyFromHdu,
+  buildGitHubBugTitle,
+  buildIssueBodyFromBug,
 };
