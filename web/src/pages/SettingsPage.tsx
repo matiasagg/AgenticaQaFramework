@@ -24,7 +24,10 @@ export default function SettingsPage() {
     geminiKeyApi
       .getStatus()
       .then((r) => setConfigured(r.configured))
-      .catch(() => setConfigured(false))
+      .catch((e: any) => {
+        setConfigured(false)
+        setError(e?.error?.message || e?.response?.data?.message || e?.message || 'No se pudo consultar el estado de la key.')
+      })
   }, [])
 
   const handleSave = async () => {
@@ -34,10 +37,9 @@ export default function SettingsPage() {
       await geminiKeyApi.save(token.trim())
       setConfigured(true)
       setSaved(true)
-      setToken('')
       setTimeout(() => setSaved(false), 3000)
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'No se pudo guardar la key. Intenta de nuevo.')
+      setError(e?.error?.message || e?.response?.data?.message || e?.message || 'No se pudo guardar la key. Intenta de nuevo.')
     }
   }
 
@@ -48,7 +50,7 @@ export default function SettingsPage() {
       setConfigured(false)
       setToken('')
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'No se pudo eliminar la key.')
+      setError(e?.error?.message || e?.response?.data?.message || e?.message || 'No se pudo eliminar la key.')
     }
   }
 
@@ -153,7 +155,7 @@ export default function SettingsPage() {
           {/* Confirmación / error */}
           {saved && (
             <div className="p-3 bg-green-50 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-lg">
-              ✓ Key guardada correctamente. Ve a una HDU y pulsa "Refrescar análisis" para validar con IA.
+              ✓ Key guardada correctamente. Se mantiene encriptada en el servidor y queda enmascarada en el formulario por seguridad.
             </div>
           )}
           {error && (
