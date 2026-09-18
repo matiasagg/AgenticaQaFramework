@@ -122,7 +122,7 @@ router.post('/:id/validate-dor', async (req: AuthenticatedRequest, res: Response
         bug.expectedResult ? `Resultado esperado: ${bug.expectedResult}` : '',
         bug.actualResult ? `Resultado actual: ${bug.actualResult}` : '',
       ].filter(Boolean),
-      priority: bug.severity,
+      priority: bug.severity === 'CRITICAL' ? 'HIGH' : bug.severity,
       storyPoints: 1,
     };
 

@@ -594,8 +594,7 @@ export default function UserStoriesPage() {
     setIsEditing(true)
   }
 
-  /**
-   * Guarda los cambios de la HDR y revalida el DoR.
+   * Guarda los cambios de la HDU y revalida el DoR.
    */
   const handleSaveHdu = async () => {
     if (!selectedStory) return
@@ -1467,9 +1466,8 @@ export default function UserStoriesPage() {
                   value={formData.projectId}
                   onChange={async (e) => {
                     const projectId = e.target.value
-                    setFormData(prev => ({ ...prev, projectId, epicId: '', featureId: '', testSuiteId: '' }))
-                    if (projectId) await fetchEpics(projectId)
                     if (projectId) await fetchGithubOptions(projectId)
+                    if (projectId) await fetchTestSuites(projectId)
                   }}
                   className="input-field"
                   required

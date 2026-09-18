@@ -78,7 +78,10 @@ export interface UserStoryForGeneration {
  * de la suite siempre es el displayId persistido de la HDU.
  */
 export function getCanonicalHduTitle(title: string): string {
-  return title.replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '').trim() || title.trim();
+  return title
+    .replace(/^\s*HDU\s*[-_:]\s*\d+\s*[-–—:]\s*/i, '')
+    .replace(/^\s*\[\s*HDU(?:\s*[-_:]\s*\d+)?\s*\]\s*/i, '')
+    .trim() || title.trim();
 }
 
 export function buildTestSuiteTitle(displayId: string | null | undefined, title: string, fallbackId?: string): string {
