@@ -218,6 +218,10 @@ router.put('/:id', asyncHandler(async (req: AuthenticatedRequest, res: Response)
 
   // Cualquier cambio en los datos de la HDU invalida el análisis DoR anterior.
   updateData.staticAnalysis = null
+  updateData.dorScore = null
+  updateData.dorChecklist = null
+  updateData.qualityScore = null
+  updateData.isReady = false
 
   // Any local change to a GitHub-linked HDU must be explicitly pushed back to
   // GitHub. Without this marker the UI reports the record as synchronized even

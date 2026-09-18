@@ -20,6 +20,10 @@ export interface Bug {
   assignee?: string
   labels?: string[]
   branchName?: string
+  // Identificadores de sincronización externa.
+  // `githubId` almacena el número del issue de GitHub (si el bug fue importado).
+  githubId?: string | null
+  jiraId?: string | null
   dorScore?: number | null
   isReady?: boolean
   dorChecklist?: Array<{ id: string; name: string; passed: boolean; suggestion?: string }>

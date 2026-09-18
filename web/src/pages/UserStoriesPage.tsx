@@ -96,6 +96,7 @@ export default function UserStoriesPage() {
   const [selectedStory, setSelectedStory] = useState<UserStory | null>(null)
   const [validationResult, setValidationResult] = useState<DorValidation | null>(null)
   const [aiAnalysis, setAiAnalysis] = useState<any>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
   const [generatingTests, setGeneratingTests] = useState(false)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
@@ -325,6 +326,7 @@ export default function UserStoriesPage() {
       )
       setValidationResult(response.data.validation)
       setAiAnalysis(response.data.aiAnalysis)
+      setAiError(response.data.aiError || null)
       setSelectedStory(response.data.userStory)
       fetchUserStories()
     } catch (error: any) {
@@ -535,7 +537,14 @@ export default function UserStoriesPage() {
     // intentionally skips unchanged issues, but these fields may have been
     // added locally after the issue was imported.
     let storyToEdit = selectedStory
-    if (selectedStory.externalSystem === 'GITHUB' && selectedStory.externalId && selectedStory.syncStatus !== 'UNSYNCED') {
+    // Las mejoras aplicadas desde DoR son cambios locales hasta que el usuario
+    // las publique en GitHub. No se debe forzar un sync en ese estado porque
+    // GitHub todavía conserva los valores anteriores y los sobrescribiría.
+    if (
+      selectedStory.externalSystem === 'GITHUB' &&
+      selectedStory.externalId &&
+      selectedStory.syncStatus !== 'UNSYNCED'
+    ) {
       try {
         await api.post(`/github-sync/${selectedStory.projectId}/sync`, {
           issueNumbers: [Number(selectedStory.externalId)],
@@ -1347,6 +1356,13 @@ export default function UserStoriesPage() {
                 })()}
 
                 {/* Análisis IA */}
+                {aiError && (
+                  <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-xs">
+                    <p className="font-medium">No se pudo ejecutar el análisis con IA.</p>
+                    <p className="mt-1">{aiError}</p>
+                    <p className="mt-1">Configura una key válida en Configuración y pulsa “Refrescar análisis”.</p>
+                  </div>
+                )}
                 {aiAnalysis && (
                   <details className="group" open={false}>
                     <summary className="cursor-pointer text-xs font-medium text-purple-700 dark:text-purple-300 hover:text-purple-800 flex items-center gap-1">
@@ -1393,12 +1409,13 @@ export default function UserStoriesPage() {
             {/* Botones fijos */}
             <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <div className="flex justify-end space-x-3">
-                {validationResult.isReady && selectedStory && !selectedStory.testSuite && (
+                {selectedStory && (
                   <button
                     onClick={() => {
                       handleGenerateTests(selectedStory.id);
                       setValidationResult(null);
                       setAiAnalysis(null);
+                      setAiError(null);
                     }}
                     className="btn-primary text-sm"
                     disabled={generatingTests}
@@ -1407,7 +1424,7 @@ export default function UserStoriesPage() {
                   </button>
                 )}
                 <button
-                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); setAiError(null); }}
                   className="btn-secondary text-sm"
                 >
                   Cerrar
@@ -1667,7 +1684,22 @@ export default function UserStoriesPage() {
                     {story.testSuite && <span className="text-green-600">✓ Suite generada</span>}
                   </div>
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {/* Ver Detalle: abre el detalle de la HDU en el modal DoR.
+                      Si ya tiene score cached lo muestra directo; si no, valida. */}
+                  <button
+                    onClick={() => {
+                      setSelectedStory(story)
+                      if (story.dorScore !== null) {
+                        setValidationResult({ score: story.dorScore, isReady: story.isReady, checklist: [], summary: '', recommendations: [], recommendationsDetailed: [], cached: true })
+                      } else {
+                        handleValidateDor(story.id)
+                      }
+                    }}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    Ver Detalle
+                  </button>
                   <button
                     onClick={() => handleEdit(story)}
                     className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
@@ -1681,7 +1713,7 @@ export default function UserStoriesPage() {
                   >
                     {validatingDor === story.id ? 'Validando...' : 'Validar DoR'}
                   </button>
-                  {story.isReady && !story.testSuite && (
+                  {story.isReady && (
                     <button
                       onClick={() => handleGenerateTests(story.id)}
                       className="px-3 py-1 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200"

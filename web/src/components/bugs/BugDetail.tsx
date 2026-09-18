@@ -1,15 +1,86 @@
 import { Bug } from '../../types'
+import { useState } from 'react'
+import BugDorModal from './BugDorModal'
 
 interface BugDetailProps {
   bug: Bug
   onBack: () => void
   onEdit?: (bug: Bug) => void
   onDelete?: (bug: Bug) => void
-  onValidateDor?: (bug: Bug) => void
+  onValidateDor?: (bugId: string, refresh?: boolean) => void
   dorResult?: any
+  aiAnalysis?: any
+  aiError?: string | null
+  onApplyFix?: (fix: { field: string; value: string | string[] | number }) => void
+  onCloseDor?: () => void
+  isRefreshing?: boolean
+  // Metadatos de GitHub para los combos del modal DoR (igual que en HDU).
+  collaborators?: Array<{ login: string }>
+  branches?: string[]
+  // ID del bug al que se le está aplicando una mejora DoR (para deshabilitar el botón).
+  applyingFix?: string | null
+  // Push a GitHub en curso (opcional, igual que en el listado).
+  onPushToGitHub?: (bug: Bug) => void
+  isPushingGithub?: boolean
+  onSaveBug: (data: {
+    title: string
+    description: string
+    severity: string
+    stepsToReproduce: string[]
+    expectedResult: string
+    actualResult: string
+    environment: string
+    assignee: string
+    labels: string[]
+    branchName: string
+  }) => void | Promise<void>
 }
 
-export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult }: BugDetailProps) {
+export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult, aiAnalysis, aiError, onApplyFix, onCloseDor, isRefreshing, collaborators = [], branches = [], applyingFix = null, onPushToGitHub, isPushingGithub, onSaveBug }: BugDetailProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  // Incluye los metadatos de GitHub (assignee, labels, branchName) para que la
+  // edición desde el DoR cubra TODOS los datos que luego se validan/sincronizan,
+  // igual que el flujo de las HDUs.
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    severity: 'MEDIUM',
+    stepsToReproduce: [''] as string[],
+    expectedResult: '',
+    actualResult: '',
+    environment: '',
+    assignee: '',
+    labels: [] as string[],
+    branchName: '',
+  })
+
+  const handleStartEdit = () => {
+    setEditFormData({
+      title: bug.title,
+      description: bug.description,
+      severity: bug.severity,
+      stepsToReproduce: bug.stepsToReproduce && bug.stepsToReproduce.length > 0 ? [...bug.stepsToReproduce] : [''],
+      expectedResult: bug.expectedResult || '',
+      actualResult: bug.actualResult || '',
+      environment: bug.environment || '',
+      assignee: bug.assignee || '',
+      labels: bug.labels || [],
+      branchName: bug.branchName || '',
+    })
+    setIsEditing(true)
+  }
+
+  const handleSaveBug = async () => {
+    try {
+      await onSaveBug({
+        ...editFormData,
+        stepsToReproduce: editFormData.stepsToReproduce.filter((step) => step.trim() !== ''),
+      })
+      setIsEditing(false)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar el bug')
+    }
+  }
   const getSeverityColor = (severity: string): string => {
     const colors: Record<string, string> = {
       CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
@@ -42,6 +113,19 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
 
   return (
     <div className="space-y-6">
+      {/* Overlay de carga para validación DoR.
+          Igual que en HDU: mientras se valida (o refresca) el análisis se muestra
+          una pantalla de carga a pantalla completa, sin importar desde dónde se
+          haya lanzado (detalle o listado). Debe ir por encima del modal DoR,
+          por eso usa z-[200]. */}
+      {isRefreshing && (
+        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-[200]">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent mb-4"></div>
+          <p className="text-white text-lg font-medium">Validando DoR con IA...</p>
+          <p className="text-gray-300 text-sm mt-1">🤖 Gemini está analizando el bug</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
@@ -68,14 +152,6 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
         </div>
       </div>
 
-      {dorResult && (
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-3">Análisis DoR</h2>
-          <p className="mb-3">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
-          <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
-        </div>
-      )}
-
       {/* Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
@@ -95,7 +171,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Pasos para Reproducir
             </h2>
-            {bug.stepsToReproduce.length > 0 ? (
+            {bug.stepsToReproduce && bug.stepsToReproduce.length > 0 ? (
               <ol className="list-decimal list-inside space-y-2">
                 {bug.stepsToReproduce.map((step, index) => (
                   <li key={index} className="text-gray-700 dark:text-gray-300">
@@ -131,7 +207,7 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
           </div>
 
           {/* Evidence Gallery */}
-          {bug.evidence.length > 0 && (
+          {bug.evidence && bug.evidence.length > 0 && (
             <div className="card">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Evidencias ({bug.evidence.length})
@@ -227,9 +303,19 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
               <button className="btn-primary w-full" onClick={() => onEdit?.(bug)}>
                 Editar Bug
               </button>
-              <button className="btn-secondary w-full" onClick={() => onValidateDor?.(bug)}>
+              <button className="btn-secondary w-full" onClick={() => onValidateDor?.(bug.id)}>
                 Analizar DoR
               </button>
+              {onPushToGitHub && (
+                <button
+                  className="btn-secondary w-full"
+                  onClick={() => onPushToGitHub(bug)}
+                  disabled={!bug.githubId || isPushingGithub}
+                  title={bug.githubId ? 'Sincronizar con GitHub' : 'Solo bugs importados de GitHub'}
+                >
+                  {isPushingGithub ? 'Sincronizando…' : 'Sincronizar GitHub'}
+                </button>
+              )}
               <button className="btn-secondary w-full" onClick={() => onBack()}>
                 Volver a lista
               </button>
@@ -240,6 +326,27 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
           </div>
         </div>
       </div>
+
+      {/* Modal DoR */}
+      <BugDorModal
+        bug={bug}
+        dorResult={dorResult}
+        aiAnalysis={aiAnalysis}
+        aiError={aiError}
+        onClose={onCloseDor || (() => {})}
+        onRefresh={() => onValidateDor?.(bug.id, true)}
+        isRefreshing={isRefreshing || false}
+        onStartEdit={handleStartEdit}
+        onCancelEdit={() => setIsEditing(false)}
+        isEditing={isEditing}
+        editFormData={editFormData}
+        onEditFormChange={setEditFormData}
+        onSaveBug={handleSaveBug}
+        onApplyFix={onApplyFix || (() => {})}
+        applyingFix={applyingFix}
+        collaborators={collaborators}
+        branches={branches}
+      />
     </div>
   )
 }

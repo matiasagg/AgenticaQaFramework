@@ -21,6 +21,14 @@ export default function BugList() {
   const [branches, setBranches] = useState<string[]>([])
   const [editingBug, setEditingBug] = useState<Bug | null>(null)
   const [dorResult, setDorResult] = useState<any>(null)
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [validatingDor, setValidatingDor] = useState<string | null>(null)
+  const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  // Bug cuyo "push" a GitHub está en curso (para deshabilitar el botón y evitar dobles envíos).
+  const [pushingGithub, setPushingGithub] = useState<string | null>(null)
+  // La edición dentro del modal DoR la maneja BugDetail (que incluye los
+  // metadatos de GitHub: assignee, labels, branchName), igual que la HDU.
   const [filters, setFilters] = useState<Filters>({
     severity: '',
     status: '',
@@ -59,14 +67,106 @@ export default function BugList() {
     }
   }
 
-  const validateBugDor = async (bug: Bug) => {
+  /**
+   * Valida el DoR de un bug.
+   * Por defecto usa la caché del backend (análisis persistido, estable).
+   * Con `refresh=true` fuerza un nuevo análisis con IA (no-determinista).
+   */
+  const validateBugDor = async (bugId: string, refresh = false) => {
+    setValidatingDor(bugId)
     try {
-      const response = await bugsApi.validateDor(bug.id)
+      const response = await bugsApi.validateDor(bugId, refresh)
       setDorResult(response)
+      setAiAnalysis(response.aiAnalysis)
+      setAiError(response.aiError || null)
+      setSelectedBug(response.bug)
       await fetchBugs()
     } catch (err: any) {
-      alert(err?.response?.data?.error?.message || 'Error al validar el DoR del bug')
+      alert(err?.error?.message || err?.response?.data?.error?.message || err?.message || 'Error al validar el DoR del bug')
+    } finally {
+      setValidatingDor(null)
     }
+  }
+
+  /**
+   * Guarda los cambios del bug y revalida el DoR.
+   * Incluye los metadatos de GitHub (assignee, labels, branchName) para que la
+   * edición dentro del DoR cubra TODOS los datos que luego se validan/sincronizan.
+   */
+  const handleSaveBug = async (data: any) => {
+    if (!selectedBug) return
+    try {
+      const response = await bugsApi.update(selectedBug.id, {
+        title: data.title,
+        description: data.description,
+        severity: data.severity,
+        stepsToReproduce: data.stepsToReproduce.filter((s: string) => s.trim() !== ''),
+        expectedResult: data.expectedResult,
+        actualResult: data.actualResult,
+        environment: data.environment,
+        assignee: data.assignee,
+        labels: data.labels,
+        branchName: data.branchName,
+      })
+      if (response.bug) setSelectedBug(response.bug)
+      await fetchBugs()
+      // Revalidar con los nuevos datos
+      await validateBugDor(selectedBug.id, true)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al guardar el bug')
+    }
+  }
+
+  /**
+   * Aplica un parche DoR específico al bug.
+   * Llama al endpoint /apply-dor-fixes y recarga la validación.
+   */
+  const handleApplyFix = async (fix: { field: string; value: string | string[] | number }) => {
+    if (!selectedBug) return
+    setApplyingFix(selectedBug.id)
+    try {
+      await bugsApi.applyDorFixes(selectedBug.id, [fix])
+      // Recargar la validación para reflejar los cambios
+      await validateBugDor(selectedBug.id, true)
+      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+    } finally {
+      setApplyingFix(null)
+    }
+  }
+
+  /**
+   * Sincroniza los cambios del bug con su issue de GitHub (reutiliza el endpoint
+   * /push-to-github, equivalente al push de la HDU). Solo aplica a bugs vinculados.
+   */
+  const handlePushToGitHub = async (bug: Bug) => {
+    if (!bug.githubId) {
+      alert('Este bug no está vinculado a un issue de GitHub. Importa el issue desde GitHub Sync para poder sincronizarlo.')
+      return
+    }
+    setPushingGithub(bug.id)
+    try {
+      const response = await bugsApi.pushToGitHub(bug.id)
+      alert(`✅ ${response.message || 'Bug sincronizado con GitHub correctamente.'}`)
+      const refreshed = await bugsApi.getById(bug.id)
+      if (refreshed.bug && selectedBug?.id === bug.id) setSelectedBug(refreshed.bug)
+      await fetchBugs()
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || error?.message || 'Error al sincronizar el bug con GitHub')
+    } finally {
+      setPushingGithub(null)
+    }
+  }
+
+  /**
+   * Abre el detalle de un bug y precarga las opciones de GitHub (colaboradores
+   * y ramas del proyecto) para que los combos del modal DoR funcionen igual
+   * que en el flujo de las HDUs.
+   */
+  const handleSelectBug = (bug: Bug) => {
+    setSelectedBug(bug)
+    if (bug.projectId) loadGithubOptions(bug.projectId)
   }
 
   const fetchBugs = async () => {
@@ -155,12 +255,37 @@ export default function BugList() {
     setShowCreate(true)
   }
 
-  if (selectedBug) {
-    return <BugDetail bug={selectedBug} onBack={() => setSelectedBug(null)} onEdit={openEdit} onDelete={handleDelete} onValidateDor={validateBugDor} dorResult={dorResult} />
-  }
+  // Se usa una variable booleana (en vez de "!selectedBug") para que TypeScript
+  // no estreche el tipo de selectedBug a null/never dentro del JSX del listado.
+  const showList = !selectedBug
 
   return (
     <div className="space-y-6">
+      {/* Detalle del bug: se muestra en lugar del listado cuando hay uno seleccionado.
+          Se renderiza dentro del mismo árbol para que los modales (crear/editar,
+          overlay DoR) aparezcan ENCIMA del detalle y no queden tapados. */}
+      {Boolean(selectedBug) && (
+        <BugDetail
+          bug={selectedBug!}
+          onBack={() => setSelectedBug(null)}
+          onEdit={openEdit}
+          onDelete={handleDelete}
+          onValidateDor={validateBugDor}
+          dorResult={dorResult}
+          aiAnalysis={aiAnalysis}
+          aiError={aiError}
+          onApplyFix={handleApplyFix}
+          onCloseDor={() => { setDorResult(null); setAiAnalysis(null); setAiError(null); }}
+          isRefreshing={validatingDor !== null}
+          applyingFix={applyingFix}
+          onSaveBug={handleSaveBug}
+          onPushToGitHub={handlePushToGitHub}
+          isPushingGithub={pushingGithub === selectedBug?.id}
+          collaborators={collaborators}
+          branches={branches}
+        />
+      )}
+      {showList && (<>
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
@@ -286,7 +411,7 @@ export default function BugList() {
                   <tr
                     key={bug.id}
                     className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                    onClick={() => setSelectedBug(bug)}
+                    onClick={() => handleSelectBug(bug)}
                   >
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -312,21 +437,35 @@ export default function BugList() {
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                       {formatDate(bug.createdAt)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                       <button
+                         onClick={(e) => {
+                           e.stopPropagation()
+                           handleSelectBug(bug)
+                         }}
+                         className="text-primary-600 hover:text-primary-800 dark:text-primary-400"
+                       >
+                         Ver Detalle
+                       </button>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedBug(bug)
-                        }}
-                        className="text-primary-600 hover:text-primary-800 dark:text-primary-400"
-                      >
-                        Ver Detalle
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); validateBugDor(bug) }}
+                        onClick={(e) => { e.stopPropagation(); validateBugDor(bug.id) }}
                         className="ml-3 text-blue-600 hover:text-blue-800 dark:text-blue-400"
                       >
                         Analizar DoR
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEdit(bug) }}
+                        className="ml-3 text-amber-600 hover:text-amber-800 dark:text-amber-400"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handlePushToGitHub(bug) }}
+                        disabled={!bug.githubId || pushingGithub === bug.id}
+                        title={bug.githubId ? 'Sincronizar con GitHub' : 'Solo bugs importados de GitHub'}
+                        className="ml-3 text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white disabled:text-gray-300 dark:disabled:text-gray-600 disabled:cursor-not-allowed"
+                      >
+                        {pushingGithub === bug.id ? 'Sincronizando…' : 'Sincronizar GitHub'}
                       </button>
                     </td>
                   </tr>
@@ -336,87 +475,171 @@ export default function BugList() {
           </div>
         )}
       </div>
+      </>)}
 
-      {/* Create Modal */}
+      {/* Create/Edit Modal (compartido entre listado y detalle) */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Nuevo Bug</h2>
-              <button onClick={() => setShowCreate(false)} className="p-2">✕</button>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{editingBug ? 'Editar Bug' : 'Nuevo Bug'}</h2>
+              <button
+                onClick={() => { setShowCreate(false); setEditingBug(null) }}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                title="Cerrar"
+              >
+                ✕
+              </button>
             </div>
-            <div className="p-6 space-y-3">
-              <select className="input-field" value={createData.projectId || ''} onChange={(e) => { setCreateData({ ...createData, projectId: e.target.value }); loadGithubOptions(e.target.value) }}>
-                <option value="">Seleccionar proyecto...</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input className="input-field" placeholder="Título" value={createData.title} onChange={(e) => setCreateData({ ...createData, title: e.target.value })} />
-              <textarea className="input-field" placeholder="Descripción" value={createData.description} onChange={(e) => setCreateData({ ...createData, description: e.target.value })} />
-              <select className="input-field" value={createData.severity} onChange={(e) => setCreateData({ ...createData, severity: e.target.value })}>
-                <option value="CRITICAL">Critica</option>
-                <option value="HIGH">Alta</option>
-                <option value="MEDIUM">Media</option>
-                <option value="LOW">Baja</option>
-              </select>
-              <select className="input-field" value={createData.assignee || ''} onChange={(e) => setCreateData({ ...createData, assignee: e.target.value })}>
-                <option value="">Sin asignar</option>
-                {collaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
-              </select>
-              <input className="input-field" placeholder="Labels separados por coma" value={(createData.labels || []).join(', ')} onChange={(e) => setCreateData({ ...createData, labels: e.target.value.split(',').map((label: string) => label.trim()).filter(Boolean) })} />
-              <input className="input-field" list="bug-github-branches" placeholder="Rama" value={createData.branchName || ''} onChange={(e) => setCreateData({ ...createData, branchName: e.target.value })} />
-              <datalist id="bug-github-branches">{branches.map((branch) => <option key={branch} value={branch} />)}</datalist>
-              <div className="flex justify-end gap-2">
-                <button className="btn-ghost" onClick={() => { setShowCreate(false); setEditingBug(null); }}>Cancelar</button>
-                <button className="btn-primary" onClick={async () => {
-                  try {
-                    if (editingBug) {
-                      await bugsApi.update(editingBug.id, {
-                        title: createData.title,
-                        description: createData.description,
-                        severity: createData.severity,
-                        expectedResult: createData.expectedResult,
-                        actualResult: createData.actualResult,
-                        environment: createData.environment,
-                        assignee: createData.assignee,
-                        labels: createData.labels || [],
-                        branchName: createData.branchName || '',
-                      })
-                    } else {
-                      await bugsApi.create({
-                        ...createData,
-                        projectId: createData.projectId || projects[0]?.id || '',
-                        stepsToReproduce: createData.stepsToReproduce || [],
-                        assignee: createData.assignee,
-                        labels: createData.labels || [],
-                        branchName: createData.branchName || '',
-                      })
-                    }
-                    setShowCreate(false)
-                    setEditingBug(null)
-                    fetchBugs()
-                  } catch (err) {
-                    console.error(err)
-                    alert('Error guardando bug')
-                  }
-                }}>{editingBug ? 'Guardar' : 'Crear'}</button>
+            {/* Formulario ampliado para capturar TODOS los datos que luego valida el DoR
+                y se sincronizan con GitHub (pasos, esperado, actual, entorno y metadatos). */}
+            <div className="p-6 space-y-3 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Proyecto</label>
+                <select className="input-field" value={createData.projectId || ''} onChange={(e) => { setCreateData({ ...createData, projectId: e.target.value }); loadGithubOptions(e.target.value) }}>
+                  <option value="">Seleccionar proyecto...</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Título</label>
+                <input className="input-field" placeholder="Título" value={createData.title} onChange={(e) => setCreateData({ ...createData, title: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Descripción</label>
+                <textarea className="input-field" placeholder="Descripción" value={createData.description} onChange={(e) => setCreateData({ ...createData, description: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severidad</label>
+                  <select className="input-field" value={createData.severity} onChange={(e) => setCreateData({ ...createData, severity: e.target.value })}>
+                    <option value="CRITICAL">Critica</option>
+                    <option value="HIGH">Alta</option>
+                    <option value="MEDIUM">Media</option>
+                    <option value="LOW">Baja</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Entorno</label>
+                  <input className="input-field" placeholder="Ej: producción, staging, Chrome 120" value={createData.environment || ''} onChange={(e) => setCreateData({ ...createData, environment: e.target.value })} />
+                </div>
+              </div>
+
+              {/* Pasos para reproducir (lista editable) */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Pasos para reproducir</label>
+                {(createData.stepsToReproduce || []).map((step: string, i: number) => (
+                  <div key={i} className="flex gap-1 mt-1">
+                    <input
+                      className="input-field flex-1"
+                      placeholder={`Paso ${i + 1}`}
+                      value={step}
+                      onChange={(e) => {
+                        const newSteps = [...(createData.stepsToReproduce || [])]
+                        newSteps[i] = e.target.value
+                        setCreateData({ ...createData, stepsToReproduce: newSteps })
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const newSteps = (createData.stepsToReproduce || []).filter((_: string, idx: number) => idx !== i)
+                        setCreateData({ ...createData, stepsToReproduce: newSteps })
+                      }}
+                      className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setCreateData({ ...createData, stepsToReproduce: [...(createData.stepsToReproduce || []), ''] })}
+                  className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                >
+                  + Agregar paso
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Resultado esperado</label>
+                  <textarea className="input-field" placeholder="Resultado esperado" value={createData.expectedResult || ''} onChange={(e) => setCreateData({ ...createData, expectedResult: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Resultado actual</label>
+                  <textarea className="input-field" placeholder="Resultado actual" value={createData.actualResult || ''} onChange={(e) => setCreateData({ ...createData, actualResult: e.target.value })} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Asignado a</label>
+                  <select className="input-field" value={createData.assignee || ''} onChange={(e) => setCreateData({ ...createData, assignee: e.target.value })}>
+                    <option value="">Sin asignar</option>
+                    {collaborators.map((user) => <option key={user.login} value={user.login}>{user.login}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Rama</label>
+                  <input className="input-field" list="bug-github-branches" placeholder="Rama" value={createData.branchName || ''} onChange={(e) => setCreateData({ ...createData, branchName: e.target.value })} />
+                  <datalist id="bug-github-branches">{branches.map((branch) => <option key={branch} value={branch} />)}</datalist>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Labels (separados por coma)</label>
+                <input className="input-field" placeholder="bug, alta, frontend" value={(createData.labels || []).join(', ')} onChange={(e) => setCreateData({ ...createData, labels: e.target.value.split(',').map((label: string) => label.trim()).filter(Boolean) })} />
               </div>
             </div>
+            <div className="p-6 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+              <button className="btn-ghost" onClick={() => { setShowCreate(false); setEditingBug(null); }}>Cancelar</button>
+              <button className="btn-primary" onClick={async () => {
+                try {
+                  const payload = {
+                    title: createData.title,
+                    description: createData.description,
+                    severity: createData.severity,
+                    stepsToReproduce: (createData.stepsToReproduce || []).filter((s: string) => s && s.trim() !== ''),
+                    expectedResult: createData.expectedResult || '',
+                    actualResult: createData.actualResult || '',
+                    environment: createData.environment || '',
+                    assignee: createData.assignee || '',
+                    labels: createData.labels || [],
+                    branchName: createData.branchName || '',
+                  }
+                  if (editingBug) {
+                    await bugsApi.update(editingBug.id, payload)
+                  } else {
+                    await bugsApi.create({
+                      ...payload,
+                      projectId: createData.projectId || projects[0]?.id || '',
+                    })
+                  }
+                  setShowCreate(false)
+                  setEditingBug(null)
+                  fetchBugs()
+                } catch (err) {
+                  console.error(err)
+                  alert('Error guardando bug')
+                }
+              }}>{editingBug ? 'Guardar' : 'Crear'}</button>
+            </div>
           </div>
         </div>
       )}
 
-      {dorResult && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120] p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6">
-            <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">Análisis DoR del Bug</h2><button onClick={() => setDorResult(null)}>✕</button></div>
-            <p className="mb-4">Score: <strong>{dorResult.validation.score}%</strong> — {dorResult.validation.isReady ? 'Listo' : 'Requiere mejoras'}</p>
-            <div className="space-y-2">{dorResult.validation.checklist.map((item: any) => <div key={item.id} className="border rounded p-2"><span>{item.passed ? '✅' : '❌'} {item.name}</span>{item.suggestion && <p className="text-sm text-gray-500">{item.suggestion}</p>}</div>)}</div>
-          </div>
+      {/* Overlay de carga para validación DoR */}
+      {validatingDor && (
+        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-[200]">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent mb-4"></div>
+          <p className="text-white text-lg font-medium">Validando DoR con IA...</p>
+          <p className="text-gray-300 text-sm mt-1">🤖 Gemini está analizando el bug</p>
         </div>
       )}
+
+      {/* El modal DoR se muestra via BugDetail/BugDorModal al validar (el bug queda seleccionado). */}
 
       {/* Summary */}
-      {!loading && !error && bugs.length > 0 && (
+      {showList && !loading && !error && bugs.length > 0 && (
         <div className="text-sm text-gray-500 dark:text-gray-400">
           Mostrando {bugs.length} bug{bugs.length !== 1 ? 's' : ''}
         </div>

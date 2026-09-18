@@ -112,10 +112,17 @@ router.put('/me/gemini-key', asyncHandler(async (req: AuthenticatedRequest, res:
   // Cifrar antes de persistir (nunca en texto plano)
   const encrypted = encryptApiKey(geminiApiKey.trim());
 
-  await prisma.user.update({
-    where: { id: req.user!.id },
-    data: { geminiApiKey: encrypted },
-  });
+  try {
+    await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { geminiApiKey: encrypted },
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      throw new ApiError('Session invalid or expired', 401);
+    }
+    throw new ApiError('No se pudo guardar la key de Gemini', 500);
+  }
 
   res.json({ configured: true, message: 'Key de Gemini guardada correctamente (encriptada)' });
 }));
@@ -125,10 +132,17 @@ router.put('/me/gemini-key', asyncHandler(async (req: AuthenticatedRequest, res:
  * Elimina la key BYO del usuario (volverá a usarse la key global si existe).
  */
 router.delete('/me/gemini-key', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  await prisma.user.update({
-    where: { id: req.user!.id },
-    data: { geminiApiKey: null },
-  });
+  try {
+    await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { geminiApiKey: null },
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      throw new ApiError('Session invalid or expired', 401);
+    }
+    throw new ApiError('No se pudo eliminar la key de Gemini', 500);
+  }
 
   res.json({ configured: false, message: 'Key de Gemini eliminada' });
 }));
