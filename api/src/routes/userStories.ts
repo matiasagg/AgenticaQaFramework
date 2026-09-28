@@ -524,12 +524,19 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
  * para actualizar la HDU, se revalida el DoR y se marca la HDU como UNSYNCED
  * para habilitar la sincronización posterior con GitHub.
  *
- * Body: { fixes: DorSuggestedFix[] }
+ * Body: { fixes?: DorSuggestedFix[], recommendations?: { checkId: string, checkName?: string, message: string }[] }
+ *
+ * HDU-003: además de parches de campo, se pueden agregar recomendaciones
+ * individuales (una a una) del reporte DoR. Cada recomendación se añade como
+ * una nota técnica etiquetada con el punto del checklist al que pertenece,
+ * para que el QA vea en la HDU de dónde salió la mejora.
  */
 router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { fixes } = req.body;
-  if (!Array.isArray(fixes) || fixes.length === 0) {
-    throw new ApiError('Falta fixes (array de parches { field, value })', 400);
+  const { fixes, recommendations } = req.body;
+  const hasFixes = Array.isArray(fixes) && fixes.length > 0;
+  const hasRecommendations = Array.isArray(recommendations) && recommendations.length > 0;
+  if (!hasFixes && !hasRecommendations) {
+    throw new ApiError('Falta fixes (array de parches { field, value }) o recommendations (array de { checkId, message })', 400);
   }
 
   const existingStory = await prisma.userStory.findFirst({
@@ -541,7 +548,29 @@ router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedReques
 
   // Construir el update a partir de los parches, validando cada campo permitido.
   const updateData: any = {};
-  for (const fix of fixes) {
+
+  // ── HDU-003: agregar recomendaciones una a una como notas técnicas ──
+  // Cada nota se guarda con el prefijo "[DoR:<punto>]" para trazabilidad.
+  // Se evita duplicar notas si la misma recomendación ya fue agregada.
+  if (hasRecommendations) {
+    const existingNotes: string[] = Array.isArray(existingStory.technicalNotes)
+      ? [...existingStory.technicalNotes]
+      : [];
+    let added = 0;
+    for (const rec of recommendations) {
+      if (!rec || typeof rec.message !== 'string' || rec.message.trim() === '') continue;
+      const checkLabel = typeof rec.checkName === 'string' && rec.checkName ? rec.checkName : rec.checkId || 'DoR';
+      const note = `[DoR: ${checkLabel}] ${rec.message.trim()}`;
+      if (existingNotes.includes(note)) continue; // ya agregada, no duplicar
+      existingNotes.push(note);
+      added++;
+    }
+    if (added > 0) {
+      updateData.technicalNotes = { set: existingNotes };
+    }
+  }
+
+  if (hasFixes) for (const fix of fixes) {
     if (!fix || typeof fix !== 'object') continue;
     switch (fix.field) {
       case 'title':
@@ -568,7 +597,7 @@ router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedReques
   }
 
   if (Object.keys(updateData).length === 0) {
-    throw new ApiError('Ninguno de los parches enviados es aplicable', 400);
+    throw new ApiError('Ninguna de las mejoras enviadas es aplicable (ya existen o no son válidas)', 400);
   }
 
   // Si la HDU proviene de GitHub, marcarla como UNSYNCED para permitir el push.
