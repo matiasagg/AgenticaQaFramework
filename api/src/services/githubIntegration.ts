@@ -666,8 +666,6 @@ export function buildIssueBodyFromHdu(hdu: {
 
   // Referencia al issue original (si existe)
   // The original issue reference is appended below when the description does not already contain it.
-  }
-
   // ID de la HDU en el SaaS
   if (hdu.displayId) {
     lines.push(`**ID:** ${hdu.displayId}`);
