@@ -182,14 +182,16 @@ Este repositorio incluye un blueprint listo para Render en `render.yaml`.
 3. Render detectará y creará:
   - `agentica-api` (Web Service)
   - `agentica-web` (Static Site)
+  - `agentica-db` (PostgreSQL)
 
 ### 2) Configurar variables críticas
 
 En el servicio `agentica-api`, configura obligatoriamente:
 
-- `DATABASE_URL`
 - `JWT_SECRET`
 - `CORS_ALLOWED_ORIGINS` (ejemplo: `https://agentica-web.onrender.com`)
+
+`DATABASE_URL` se conecta automáticamente al PostgreSQL `agentica-db` definido en el Blueprint.
 
 Opcionales según uso:
 
@@ -197,7 +199,8 @@ Opcionales según uso:
 
 ### 3) Base de datos
 
-- Usa un Postgres administrado (Neon/Supabase/Render Postgres) y copia su URL en `DATABASE_URL`.
+- El Blueprint crea `agentica-db` con el plan gratuito y configura `DATABASE_URL` automáticamente.
+- Si tu workspace no ofrece PostgreSQL gratuito, crea la base en Neon o Supabase y reemplaza la referencia `fromDatabase` por `sync: false`; luego carga manualmente `DATABASE_URL`.
 - En cada deploy del API se ejecuta automáticamente `prisma migrate deploy`.
 
 ### 4) Conectar frontend con backend

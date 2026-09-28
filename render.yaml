@@ -1,3 +1,8 @@
+databases:
+  - name: agentica-db
+    plan: free
+    databaseName: qa_saas_db
+
 services:
   - type: web
     name: agentica-api
@@ -12,7 +17,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: agentica-db
+          property: connectionString
       - key: JWT_SECRET
         sync: false
       - key: JWT_EXPIRES_IN
