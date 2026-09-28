@@ -5,7 +5,7 @@ services:
     plan: free
     rootDir: api
     autoDeployTrigger: commit
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start:render
     healthCheckPath: /api/health
     envVars:
@@ -44,7 +44,7 @@ services:
     name: agentica-web
     runtime: static
     rootDir: web
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     staticPublishPath: web/dist
     routes:
       - type: rewrite
