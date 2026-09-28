@@ -188,10 +188,10 @@ Este repositorio incluye un blueprint listo para Render en `render.yaml`.
 
 En el servicio `agentica-api`, configura obligatoriamente:
 
-- `JWT_SECRET`
 - `CORS_ALLOWED_ORIGINS` (ejemplo: `https://agentica-web.onrender.com`)
 
 `DATABASE_URL` se conecta automáticamente al PostgreSQL `agentica-db` definido en el Blueprint.
+`JWT_SECRET` se genera automáticamente por Render y no debe guardarse en el repositorio.
 
 Opcionales según uso:
 

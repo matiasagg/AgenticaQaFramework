@@ -21,7 +21,7 @@ services:
           name: agentica-db
           property: connectionString
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ALLOWED_ORIGINS
