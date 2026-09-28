@@ -1,10 +1,10 @@
 services:
   - type: web
     name: agentica-api
-    env: node
+    runtime: node
     plan: free
     rootDir: api
-    autoDeploy: true
+    autoDeployTrigger: commit
     buildCommand: npm install && npm run build
     startCommand: npm run start:render
     healthCheckPath: /api/health
@@ -40,13 +40,12 @@ services:
       - key: JIRA_API_TOKEN
         sync: false
 
-  - type: static_site
+  - type: web
     name: agentica-web
-    plan: free
+    runtime: static
     rootDir: web
     buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    pullRequestPreviewsEnabled: false
+    staticPublishPath: web/dist
     routes:
       - type: rewrite
         source: /*
