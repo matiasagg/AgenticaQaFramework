@@ -52,7 +52,7 @@ services:
     runtime: static
     rootDir: web
     buildCommand: npm install --include=dev && npm run build
-    staticPublishPath: web/dist
+    staticPublishPath: dist
     routes:
       - type: rewrite
         source: /*
