@@ -40,7 +40,7 @@ services:
       - key: JIRA_API_TOKEN
         sync: false
 
-  - type: static
+  - type: static_site
     name: agentica-web
     plan: free
     rootDir: web
