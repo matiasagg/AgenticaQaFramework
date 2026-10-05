@@ -1843,6 +1843,11 @@ export default function UserStoriesPage() {
                         DoR: {story.dorScore}%
                       </span>
                     )}
+                    {story.externalSystem === 'GITHUB' && story.syncStatus === 'UNSYNCED' && (
+                      <span className="px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-700" title="Hay cambios locales pendientes de push">
+                        ⚠️ Sin sincronizar
+                      </span>
+                    )}
                     {story.externalSystem === 'GITHUB' && story.sourceDisplayId && story.sourceDisplayId !== story.displayId && (
                       <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-700" title="El ID externo se conserva solo como referencia; el SaaS gobierna el ID canónico">
                         Fuente: {story.sourceDisplayId}

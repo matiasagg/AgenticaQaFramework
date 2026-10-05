@@ -32,8 +32,17 @@ api.interceptors.response.use(
     // Only redirect to login if the error is NOT from auth endpoints
     const url = error.config?.url || ''
     const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register')
+    const errorMessage = error.response?.data?.error?.message?.toLowerCase() || ''
+    const isTokenError = [
+      'access token required',
+      'invalid or expired token',
+      'invalid token',
+      'token expired',
+      'session invalid or expired',
+      'authentication required',
+    ].some((message) => errorMessage.includes(message))
     const isSessionProblem =
-      error.response?.status === 401 ||
+      (error.response?.status === 401 && (isTokenError || url.includes('/users/me'))) ||
       (error.response?.status === 404 && url.includes('/users/me'))
 
     if (isSessionProblem && !isAuthEndpoint) {

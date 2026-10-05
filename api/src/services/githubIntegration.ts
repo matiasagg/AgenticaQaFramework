@@ -590,7 +590,7 @@ export async function updateGitHubIssue(
     assignees?: string[];
   },
   tokenOverride?: string | null
-): Promise<{ number: number; title: string; html_url: string; state: string }> {
+): Promise<{ number: number; title: string; html_url: string; state: string; updated_at?: string }> {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) throw new Error(`URL de repositorio inválida: ${repoUrl}`);
 
@@ -631,6 +631,7 @@ export async function updateGitHubIssue(
     title: string;
     html_url: string;
     state: string;
+    updated_at?: string;
   };
 
   return updated;

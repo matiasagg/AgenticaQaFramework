@@ -28,6 +28,7 @@ import {
 } from '../services/storyWorkflow';
 import { updateGitHubIssue, buildIssueBodyFromHdu, buildGitHubHduTitle } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
+import { toGitHubSyncApiError } from '../services/githubSyncErrors';
 import { allocateHduIdentity } from '../services/hduIdentity';
 
 const router = Router();
@@ -974,6 +975,17 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
     throw new ApiError('El proyecto no tiene un repositorio de GitHub configurado.', 400);
   }
 
+  // Este endpoint implementa exclusivamente el push hacia GitHub. Azure DevOps
+  // todavía no tiene un conector de escritura en el proyecto; devolver un
+  // error explícito evita enviar un PAT de Azure a api.github.com y producir
+  // un mensaje engañoso de "Bad credentials".
+  if (!/^https?:\/\/(?:www\.)?github\.com\//i.test(userStory.project.repository)) {
+    throw new ApiError(
+      'La sincronización de HDUs con Azure DevOps todavía no está implementada. El endpoint actual solo admite repositorios de GitHub.',
+      400,
+    );
+  }
+
   // Verificar que la HDU tiene un issue number asociado
   const issueNumber = userStory.externalId ? parseInt(userStory.externalId, 10) : NaN;
   if (!issueNumber || isNaN(issueNumber)) {
@@ -1048,8 +1060,7 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
       projectToken
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ApiError(`Error al sincronizar con GitHub: ${message}`, 502);
+    throw toGitHubSyncApiError(error);
   }
 
   // Marcar la HDU como sincronizada
@@ -1057,7 +1068,10 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
     where: { id: req.params.id },
     data: {
       syncStatus: 'SYNCED',
-      syncedAt: new Date(),
+      // GitHub Sync compara `issue.updated_at` contra `syncedAt`. Usar el
+      // timestamp del recurso actualizado evita que el issue vuelva a
+      // aparecer como pendiente por diferencias entre relojes locales y GitHub.
+      syncedAt: githubResult.updated_at ? new Date(githubResult.updated_at) : new Date(),
     },
     include: { project: true, epic: true, feature: true, testSuite: true },
   });
