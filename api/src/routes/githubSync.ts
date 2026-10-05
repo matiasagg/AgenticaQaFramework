@@ -22,6 +22,7 @@ import {
   hasGitHubIssueChanged,
 } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
+import { extractSourceHduDisplayId, parseHduNumber, reserveHduIdentity } from '../services/hduIdentity';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -130,12 +131,12 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const issues = await fetchIssues(project.repository, state, token);
 
-  const existingStories: Array<{ externalId: string | null; title: string; syncedAt: Date | null }> = await prisma.userStory.findMany({
+  const existingStories: Array<{ externalId: string | null; title: string; syncedAt: Date | null; displayId: string | null; sourceDisplayId: string | null }> = await prisma.userStory.findMany({
     where: {
       projectId: project.id,
       externalSystem: 'GITHUB',
     },
-    select: { externalId: true, title: true, syncedAt: true },
+    select: { externalId: true, title: true, syncedAt: true, displayId: true, sourceDisplayId: true },
   });
   const existingBugs: Array<{ githubId: string | null; title: string; updatedAt: Date | null }> = await prisma.bugReport.findMany({
     where: {
@@ -164,6 +165,8 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
       targetType,
       alreadyImported: importedExternalIds.has(String(issue.number)),
       needsSync: existing ? hasGitHubIssueChanged(issue, syncedAt) : false,
+      sourceDisplayId: story?.sourceDisplayId || extractSourceHduDisplayId(issue.title, issue.body),
+      canonicalDisplayId: story?.displayId || null,
       mapped: targetType === 'BUG' ? mapIssueToBugReport(issue) : mapIssueToUserStory(issue),
     };
   });
@@ -191,7 +194,7 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const issues = await fetchIssues(project.repository, 'all', token);
-  const stories: Array<{ id: string; externalId: string | null; syncedAt: Date | null }> = await prisma.userStory.findMany({
+  const stories: Array<{ id: string; externalId: string | null; syncedAt: Date | null; displayId: string | null; sourceDisplayId: string | null }> = await prisma.userStory.findMany({
     where: {
       projectId: project.id,
       externalSystem: 'GITHUB',
@@ -250,6 +253,7 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
       }
 
       const mapped = mapIssueToUserStory(issue);
+      const sourceDisplayId = extractSourceHduDisplayId(issue.title, issue.body);
       await prisma.userStory.update({
         where: { id: story.id },
         data: {
@@ -270,10 +274,13 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           branchName: mapped.branchName ?? null,
           priority: mapped.priority as any,
           syncStatus: 'SYNCED',
+          sourceDisplayId: story.sourceDisplayId || sourceDisplayId,
           syncMetadata: {
             issueNumber: issue.number,
             source: 'github',
             sourceUpdatedAt: issue.updated_at,
+            sourceDisplayId,
+            canonicalDisplayId: story.displayId,
             syncedAt: new Date().toISOString(),
           },
           syncedAt: new Date(),
@@ -324,7 +331,13 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
   // issue más antiguo primero, independientemente del orden de la API.
   const toImport = allIssues
     .filter((i) => issueNumbers.includes(i.number))
-    .sort((left, right) => left.number - right.number);
+    .sort((left, right) => {
+      const leftSource = parseHduNumber(extractSourceHduDisplayId(left.title, left.body));
+      const rightSource = parseHduNumber(extractSourceHduDisplayId(right.title, right.body));
+      if (leftSource !== null && rightSource !== null && leftSource !== rightSource) return leftSource - rightSource;
+      if ((leftSource !== null) !== (rightSource !== null)) return leftSource !== null ? -1 : 1;
+      return left.number - right.number;
+    });
 
   if (toImport.length === 0) {
     throw new ApiError('No se encontraron issues con esos números', 404);
@@ -442,48 +455,50 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
         throw new ApiError('No se pudo resolver una Feature válida para importar la HDU', 400);
       }
 
-      // Las HDU importadas también deben tener el identificador público
-      // correlativo. Si no se asigna aquí, la suite generada posteriormente
-      // termina mostrando el cuid interno de la HDU como referencia.
-      const lastHdu = await prisma.userStory.findFirst({
-        orderBy: { hduNumber: 'desc' },
-        select: { hduNumber: true },
-      });
-      const hduNumber = (lastHdu?.hduNumber || 0) + 1;
-
-      const userStory = await prisma.userStory.create({
-        data: {
-          title: normalizedTitle,
-          description: descriptionWithRef,
-          acceptanceCriteria: mapped.acceptanceCriteria,
-          definitionOfDone: mapped.definitionOfDone,
-          technicalNotes: mapped.technicalNotes,
-          evidences: mapped.evidences,
-          dependencies: mapped.dependencies,
-          storyPoints: mapped.storyPoints,
-          labels: mapped.labels,
-          assignee: mapped.assignee,
-          branchName: mapped.branchName,
-          priority: mapped.priority as any,
-          projectId: project.id,
-          userId: req.user!.id,
-          epicId: resolvedFeature.epicId,
-          featureId: resolvedFeature.id,
-          hduNumber,
-          displayId: `HDU-${String(hduNumber).padStart(3, '0')}`,
-          status: 'NEW',
-          externalSystem: 'GITHUB',
-          externalId,
-          externalUrl: mapped.githubUrl,
-          syncStatus: 'SYNCED',
-          syncMetadata: {
-            issueNumber: issue.number,
-            source: 'github',
-            importedAt: new Date().toISOString(),
-            targetType,
+      const sourceDisplayId = extractSourceHduDisplayId(issue.title, issue.body);
+      const userStory = await prisma.$transaction(async (tx) => {
+        // El ID del issue o el HDU-### de GitHub no gobierna la identidad
+        // interna. Si el HDU canónico de la fuente sigue libre, se recupera;
+        // si no, el SaaS reserva el siguiente correlativo libre.
+        const identity = await reserveHduIdentity(tx, parseHduNumber(sourceDisplayId));
+        return tx.userStory.create({
+          data: {
+            title: normalizedTitle,
+            description: descriptionWithRef,
+            acceptanceCriteria: mapped.acceptanceCriteria,
+            definitionOfDone: mapped.definitionOfDone,
+            technicalNotes: mapped.technicalNotes,
+            evidences: mapped.evidences,
+            dependencies: mapped.dependencies,
+            storyPoints: mapped.storyPoints,
+            labels: mapped.labels,
+            assignee: mapped.assignee,
+            branchName: mapped.branchName,
+            priority: mapped.priority as any,
+            projectId: project.id,
+            userId: req.user!.id,
+            epicId: resolvedFeature.epicId,
+            featureId: resolvedFeature.id,
+            hduNumber: identity.hduNumber,
+            displayId: identity.displayId,
+            sourceDisplayId,
+            status: 'NEW',
+            externalSystem: 'GITHUB',
+            externalId,
+            externalUrl: mapped.githubUrl,
+            syncStatus: 'SYNCED',
+            syncMetadata: {
+              issueNumber: issue.number,
+              source: 'github',
+              importedAt: new Date().toISOString(),
+              targetType,
+              sourceDisplayId,
+              canonicalDisplayId: identity.displayId,
+              identityResolution: identity.resolution,
+            },
+            syncedAt: new Date(),
           },
-          syncedAt: new Date(),
-        },
+        });
       });
       imported.push({ id: userStory.id, title: userStory.title, issueNumber: issue.number, targetType });
     } catch (err: any) {

@@ -13,6 +13,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "repair:hdu-ids": "ts-node scripts/migrate-hdu-ids.ts",
+    "reconcile:hdu-ids": "ts-node scripts/reconcile-hdu-ids.ts",
     "backfill:enriched": "ts-node scripts/backfill-hdu-enriched-fields.ts"
   },
   "keywords": [

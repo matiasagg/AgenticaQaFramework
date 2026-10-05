@@ -15,6 +15,8 @@ interface GitHubIssuePreview {
   targetType: 'EPIC' | 'FEATURE' | 'HDU'
   alreadyImported: boolean
   needsSync: boolean
+  sourceDisplayId?: string | null
+  canonicalDisplayId?: string | null
   mapped: {
     title: string
     priority: string
@@ -265,6 +267,11 @@ export default function GitHubSyncPage() {
                 <span className="text-sm text-gray-400 w-12">#{issue.number}</span>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{issue.title}</p>
+                  {(issue.sourceDisplayId || issue.canonicalDisplayId) && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Fuente: {issue.sourceDisplayId || 'sin ID'} · SaaS: {issue.canonicalDisplayId || 'se asignará al importar'}
+                    </p>
+                  )}
                   <div className="flex gap-2 mt-1">
                     {issue.labels.map(label => (
                       <span key={label} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded">

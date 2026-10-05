@@ -40,6 +40,7 @@ interface UserStory {
   createdAt: string
   externalSystem?: string | null
   externalId?: string | null
+  sourceDisplayId?: string | null
   externalUrl?: string | null
   syncStatus?: string | null
   syncedAt?: string | null
@@ -1840,6 +1841,11 @@ export default function UserStoriesPage() {
                     {story.dorScore !== null && (
                       <span className={`px-2 py-1 rounded-full text-xs ${story.dorScore >= 70 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                         DoR: {story.dorScore}%
+                      </span>
+                    )}
+                    {story.externalSystem === 'GITHUB' && story.sourceDisplayId && story.sourceDisplayId !== story.displayId && (
+                      <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-700" title="El ID externo se conserva solo como referencia; el SaaS gobierna el ID canónico">
+                        Fuente: {story.sourceDisplayId}
                       </span>
                     )}
                   </div>

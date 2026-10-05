@@ -378,6 +378,9 @@ model UserStory {
   // External sync identity
   externalSystem  String?
   externalId      String?
+  // Identificador visible que traía la fuente externa (por ejemplo, HDU-048
+  // en GitHub). Nunca reemplaza al displayId canónico del SaaS.
+  sourceDisplayId  String?
   externalUrl     String?
   syncStatus      SyncStatus @default(UNSYNCED)
   syncMetadata    Json?
@@ -432,6 +435,15 @@ model UserStory {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// SaaS-owned, global allocator for canonical HDU identities. It is separate
+// from external issue numbers and is incremented atomically during creation.
+model HduSequence {
+  id          String   @id
+  nextNumber  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // Immutable snapshots of each DoR validation. The current result remains on

@@ -28,6 +28,7 @@ import {
 } from '../services/storyWorkflow';
 import { updateGitHubIssue, buildIssueBodyFromHdu, buildGitHubHduTitle } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
+import { allocateHduIdentity } from '../services/hduIdentity';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -127,44 +128,39 @@ router.post('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) =
     }
   }
 
-  // Calcular número correlativo para la HDU
-  const lastHdu = await prisma.userStory.findFirst({
-    orderBy: { hduNumber: 'desc' },
-    select: { hduNumber: true },
-  })
-  const nextHduNumber = (lastHdu?.hduNumber || 0) + 1
-  const displayId = `HDU-${String(nextHduNumber).padStart(3, '0')}`
-
-  const userStory = await prisma.userStory.create({
-    data: {
-      title,
-      description,
-      acceptanceCriteria,
-      priority: priority || 'MEDIUM',
-      storyPoints,
-      definitionOfDone: Array.isArray(definitionOfDone) ? definitionOfDone : [],
-      technicalNotes: Array.isArray(technicalNotes) ? technicalNotes : [],
-      evidences: Array.isArray(evidences) ? evidences : [],
-      dependencies: Array.isArray(dependencies) ? dependencies : [],
-      projectId,
-      featureId,
-      epicId: feature.epicId,
-      userId: req.user!.id,
-      assignee: assignee || null,
-      labels: Array.isArray(labels) ? labels : [],
-      branchName: branchName || null,
-      ...(suiteToConnect ? { testSuite: { connect: { id: suiteToConnect.id } } } : {}),
-      status: 'NEW',
-      syncStatus: 'UNSYNCED',
-      hduNumber: nextHduNumber,
-      displayId,
-    },
-    include: {
-      project: true,
-      epic: true,
-      feature: true,
-      testSuite: true,
-    },
+  const userStory = await prisma.$transaction(async (tx) => {
+    const identity = await allocateHduIdentity(tx);
+    return tx.userStory.create({
+      data: {
+        title,
+        description,
+        acceptanceCriteria,
+        priority: priority || 'MEDIUM',
+        storyPoints,
+        definitionOfDone: Array.isArray(definitionOfDone) ? definitionOfDone : [],
+        technicalNotes: Array.isArray(technicalNotes) ? technicalNotes : [],
+        evidences: Array.isArray(evidences) ? evidences : [],
+        dependencies: Array.isArray(dependencies) ? dependencies : [],
+        projectId,
+        featureId,
+        epicId: feature.epicId,
+        userId: req.user!.id,
+        assignee: assignee || null,
+        labels: Array.isArray(labels) ? labels : [],
+        branchName: branchName || null,
+        ...(suiteToConnect ? { testSuite: { connect: { id: suiteToConnect.id } } } : {}),
+        status: 'NEW',
+        syncStatus: 'UNSYNCED',
+        hduNumber: identity.hduNumber,
+        displayId: identity.displayId,
+      },
+      include: {
+        project: true,
+        epic: true,
+        feature: true,
+        testSuite: true,
+      },
+    });
   });
 
   res.status(201).json({ userStory });
