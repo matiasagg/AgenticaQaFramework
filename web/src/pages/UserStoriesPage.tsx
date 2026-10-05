@@ -77,10 +77,33 @@ interface DorValidation {
   summary: string
   recommendations: string[]
   recommendationsDetailed: DorRecommendation[]
+  syncRecommendation?: {
+    action: 'SYNC' | 'CONFIGURE' | 'NONE'
+    linkedToGitHub: boolean
+    pendingChanges: boolean
+    repository?: string
+    issueNumber?: string
+    message: string
+  }
   // Indica si el resultado viene de la caché del backend (análisis guardado)
   // o fue recién generado (con IA). validatedAt: fecha del análisis original.
   cached?: boolean
   validatedAt?: string
+}
+
+interface DorFixPreview {
+  baseUpdatedAt: string
+  changes: Array<{
+    field: string
+    previousValue: string | string[] | number | null
+    proposedValue: string | string[] | number | null
+    recommendationIds: string[]
+  }>
+  conflicts: Array<{ field: string; values: Array<string | string[] | number>; message: string }>
+  manualRecommendations: DorRecommendation[]
+  selectedRecommendations: DorRecommendation[]
+  pendingRecommendations: DorRecommendation[]
+  changedFields: string[]
 }
 
 export default function UserStoriesPage() {
@@ -101,6 +124,9 @@ export default function UserStoriesPage() {
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [generatingE2E, setGeneratingE2E] = useState<string | null>(null)
   const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [previewingFixes, setPreviewingFixes] = useState<string | null>(null)
+  const [dorFixPreview, setDorFixPreview] = useState<DorFixPreview | null>(null)
+  const [selectedDorFixes, setSelectedDorFixes] = useState<string[]>([])
   const [pushingHdu, setPushingHdu] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editFormData, setEditFormData] = useState<{
@@ -320,6 +346,8 @@ export default function UserStoriesPage() {
    */
   const handleValidateDor = async (storyId: string, refresh = false) => {
     setValidatingDor(storyId)
+    setDorFixPreview(null)
+    setSelectedDorFixes([])
     try {
       const response = await api.post(
         `/user-stories/${storyId}/validate-dor${refresh ? '?refresh=true' : ''}`
@@ -626,25 +654,60 @@ export default function UserStoriesPage() {
     }
   }
 
-  /**
-   * Aplica un parche DoR específico a la HDU (HDU-012).
-   * Llama al endpoint /apply-dor-fixes y recarga la validación.
-   */
-  const handleApplyFix = async (storyId: string, fix: { field: string; value: string | string[] | number }) => {
+  const getSelectedDorRecommendations = () => {
+    if (!validationResult) return []
+    return validationResult.checklist
+      .filter((item) => selectedDorFixes.includes(item.id) && item.suggestedFix)
+      .map((item) => ({
+        checkId: item.id,
+        checkName: item.name,
+        message: item.suggestion || `Aplicar mejora del criterio ${item.name}`,
+        source: 'rules' as const,
+        suggestedFix: item.suggestedFix,
+      }))
+  }
+
+  /** Previsualiza los cambios seleccionados sin modificar la HDU. */
+  const handlePreviewDorFixes = async (storyId: string) => {
+    const recommendations = getSelectedDorRecommendations()
+    if (recommendations.length === 0) {
+      alert('Selecciona al menos una recomendación automática para previsualizar.')
+      return
+    }
+    setPreviewingFixes(storyId)
+    try {
+      const response = await api.post(`/user-stories/${storyId}/preview-dor-fixes`, {
+        fixes: recommendations.map((recommendation) => recommendation.suggestedFix),
+        recommendations,
+      })
+      setDorFixPreview(response.data.preview)
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || 'Error al previsualizar las mejoras')
+    } finally {
+      setPreviewingFixes(null)
+    }
+  }
+
+  /** Confirma el preview y vuelve a validar la HDU con IA. */
+  const handleConfirmDorFixes = async (storyId: string) => {
+    if (!dorFixPreview) return
+    const recommendations = getSelectedDorRecommendations()
     setApplyingFix(storyId)
     try {
       const response = await api.post(`/user-stories/${storyId}/apply-dor-fixes`, {
-        fixes: [fix]
+        fixes: recommendations.map((recommendation) => recommendation.suggestedFix),
+        recommendations,
+        baseUpdatedAt: dorFixPreview.baseUpdatedAt,
       })
-      // Reflejar inmediatamente los campos aplicados en la columna izquierda
-      // del modal, antes de ejecutar el análisis completo con IA.
       if (response.data.userStory) setSelectedStory(response.data.userStory)
-      if (response.data.validation) setValidationResult(response.data.validation)
-      // Recargar la validación para reflejar los cambios
+      setAiAnalysis(null)
+      setDorFixPreview(null)
+      setSelectedDorFixes([])
       await handleValidateDor(storyId, true)
-      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+      const fields = response.data.changedFields?.join(', ') || 'sin campos'
+      alert(`✅ Mejoras aplicadas. Campos modificados: ${fields}. Puedes revisar y revalidar el resultado.`)
     } catch (error: any) {
-      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+      alert(error?.response?.data?.error?.message || 'Error al confirmar las mejoras. Puedes reintentar el preview.')
     } finally {
       setApplyingFix(null)
     }
@@ -657,12 +720,29 @@ export default function UserStoriesPage() {
   const handlePushHdu = async (storyId: string) => {
     setPushingHdu(storyId)
     try {
-      const response = await api.post(`/user-stories/${storyId}/push-hdu`, {})
+      const response = await api.post(`/user-stories/${storyId}/push-hdu`, {
+        syncFields: ['title', 'description', 'acceptanceCriteria', 'priority', 'storyPoints', 'labels', 'assignee', 'branchName'],
+      })
       const { github, syncedFields } = response.data
+      if (response.data.userStory) {
+        setSelectedStory(response.data.userStory)
+      }
+      setValidationResult((current) => current
+        ? {
+            ...current,
+            syncRecommendation: {
+              action: 'NONE',
+              linkedToGitHub: true,
+              pendingChanges: false,
+              issueNumber: String(github.issueNumber),
+              message: 'La HDU está sincronizada con GitHub.',
+            },
+          }
+        : current)
       alert(`✅ HDU sincronizada con GitHub.\n\nIssue #${github.issueNumber}: ${github.issueUrl}\n\nCampos sincronizados: ${syncedFields.join(', ')}`)
-      fetchUserStories()
+      await fetchUserStories()
     } catch (error: any) {
-      alert(error?.response?.data?.error?.message || 'Error al sincronizar con GitHub')
+      alert(error?.error?.message || error?.response?.data?.error?.message || error?.message || 'Error al sincronizar con GitHub')
     } finally {
       setPushingHdu(null)
     }
@@ -971,7 +1051,7 @@ export default function UserStoriesPage() {
                   🔄
                 </button>
                 <button
-                  onClick={() => { setValidationResult(null); setAiAnalysis(null); }}
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); setDorFixPreview(null); setSelectedDorFixes([]); }}
                   className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
                   ✕
@@ -1319,14 +1399,22 @@ export default function UserStoriesPage() {
                         <div key={item.id} className="p-2 bg-red-50 dark:bg-red-900/30 rounded border border-red-200 dark:border-red-800">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium">{item.name}</span>
-                            {item.suggestedFix && selectedStory && (
-                              <button
-                                onClick={() => handleApplyFix(selectedStory.id, item.suggestedFix!)}
-                                disabled={applyingFix === selectedStory.id}
-                                className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
-                              >
-                                ✨ Aplicar
-                              </button>
+                            {item.suggestedFix ? (
+                              <label className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedDorFixes.includes(item.id)}
+                                  onChange={(event) => setSelectedDorFixes((current) => event.target.checked
+                                    ? [...current, item.id]
+                                    : current.filter((id) => id !== item.id))}
+                                  disabled={Boolean(applyingFix || previewingFixes)}
+                                />
+                                Aplicar
+                              </label>
+                            ) : (
+                              <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 rounded">
+                                Revisar manualmente
+                              </span>
                             )}
                           </div>
                           {item.suggestion && (
@@ -1339,6 +1427,78 @@ export default function UserStoriesPage() {
                     </div>
                   );
                 })()}
+
+                {dorFixPreview && (
+                  <div className="p-3 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold text-blue-800 dark:text-blue-200">Previsualización de cambios</h3>
+                      <button
+                        type="button"
+                        onClick={() => setDorFixPreview(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    {dorFixPreview.conflicts.length > 0 && (
+                      <div className="p-2 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 text-xs">
+                        {dorFixPreview.conflicts.map((conflict) => <p key={conflict.field}>⚠️ {conflict.message}</p>)}
+                      </div>
+                    )}
+                    {dorFixPreview.changes.length > 0 ? dorFixPreview.changes.map((change) => (
+                      <div key={change.field} className="text-xs border-t border-blue-100 dark:border-blue-800 pt-2">
+                        <p className="font-medium text-gray-700 dark:text-gray-200">{change.field}</p>
+                        <p className="text-red-700 dark:text-red-300">Antes: {Array.isArray(change.previousValue) ? change.previousValue.join(' · ') : String(change.previousValue ?? 'Sin definir')}</p>
+                        <p className="text-green-700 dark:text-green-300">Después: {Array.isArray(change.proposedValue) ? change.proposedValue.join(' · ') : String(change.proposedValue ?? 'Sin definir')}</p>
+                      </div>
+                    )) : !dorFixPreview.conflicts.length && (
+                      <p className="text-xs text-gray-600 dark:text-gray-300">No hay cambios automáticos diferentes al valor actual.</p>
+                    )}
+                    {dorFixPreview.manualRecommendations.length > 0 && (
+                      <p className="text-xs text-gray-600 dark:text-gray-300">
+                        {dorFixPreview.manualRecommendations.length} sugerencia(s) requieren revisión manual y no modificarán campos automáticamente.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => selectedStory && handleConfirmDorFixes(selectedStory.id)}
+                      disabled={Boolean(dorFixPreview.conflicts.length || dorFixPreview.changes.length === 0 || applyingFix)}
+                      className="w-full px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {applyingFix ? '⏳ Aplicando...' : 'Confirmar cambios seleccionados'}
+                    </button>
+                  </div>
+                )}
+
+                {validationResult.recommendationsDetailed.some((recommendation) => !recommendation.suggestedFix) && (
+                  <div className="p-3 rounded-lg border border-gray-200 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 space-y-2">
+                    <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Recomendaciones para revisar manualmente</h3>
+                    {validationResult.recommendationsDetailed
+                      .filter((recommendation) => !recommendation.suggestedFix)
+                      .map((recommendation) => (
+                        <div key={`${recommendation.checkId}:${recommendation.message}`} className="text-xs text-gray-600 dark:text-gray-300">
+                          <span className="font-medium">{recommendation.checkName}:</span> {recommendation.message}
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {validationResult.syncRecommendation && validationResult.syncRecommendation.action !== 'NONE' && (
+                  <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-200">
+                    <p className="font-medium">{validationResult.syncRecommendation.action === 'SYNC' ? '🔄 Sincronización pendiente' : '🔗 Integración de GitHub'}</p>
+                    <p className="mt-1">{validationResult.syncRecommendation.message}</p>
+                    {validationResult.syncRecommendation.action === 'SYNC' && selectedStory && (
+                      <button
+                        type="button"
+                        onClick={() => handlePushHdu(selectedStory.id)}
+                        disabled={pushingHdu === selectedStory.id}
+                        className="mt-2 px-2 py-1 bg-black text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        {pushingHdu === selectedStory.id ? '⏳ Sincronizando...' : '⬆️ Sincronizar ahora'}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Criterios pasados */}
                 {(() => {
@@ -1409,6 +1569,16 @@ export default function UserStoriesPage() {
             {/* Botones fijos */}
             <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <div className="flex justify-end space-x-3">
+                {selectedStory && selectedDorFixes.length > 0 && !dorFixPreview && (
+                  <button
+                    type="button"
+                    onClick={() => handlePreviewDorFixes(selectedStory.id)}
+                    className="px-3 py-1.5 text-sm bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
+                    disabled={previewingFixes === selectedStory.id || Boolean(applyingFix)}
+                  >
+                    {previewingFixes === selectedStory.id ? '⏳ Preparando preview...' : `👁️ Previsualizar (${selectedDorFixes.length})`}
+                  </button>
+                )}
                 {selectedStory && (
                   <button
                     onClick={() => {
@@ -1424,7 +1594,7 @@ export default function UserStoriesPage() {
                   </button>
                 )}
                 <button
-                  onClick={() => { setValidationResult(null); setAiAnalysis(null); setAiError(null); }}
+                  onClick={() => { setValidationResult(null); setAiAnalysis(null); setAiError(null); setDorFixPreview(null); setSelectedDorFixes([]); }}
                   className="btn-secondary text-sm"
                 >
                   Cerrar

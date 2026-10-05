@@ -34,6 +34,8 @@ model User {
   improvementPlans ImprovementPlan[]
   sessions       Session[]
   userStories    UserStory[]
+  userStoryDorValidations UserStoryDorValidation[]
+  userStoryDorAudits UserStoryDorAudit[]
 }
 
 // Session model for user authentication
@@ -372,6 +374,8 @@ model UserStory {
   testPlan        TestPlan? @relation(fields: [testPlanId], references: [id])
   testSuite       TestSuite?
   agentAssignments AgentAssignment[]
+  dorValidations  UserStoryDorValidation[]
+  dorAudits       UserStoryDorAudit[]
 
   @@index([projectId])
   @@index([epicId])
@@ -382,6 +386,44 @@ model UserStory {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// Immutable snapshots of each DoR validation. The current result remains on
+// UserStory for fast reads while this model preserves the validation history.
+model UserStoryDorValidation {
+  id              String   @id @default(cuid())
+  userStoryId     String
+  userStory       UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source          String
+  score           Float
+  isReady         Boolean
+  checklist       Json
+  recommendations Json
+  aiAnalysis      Json?
+  syncRecommendation Json?
+  validatedAt     DateTime @default(now())
+
+  @@index([userStoryId, validatedAt])
+  @@index([userId, validatedAt])
+}
+
+// Audit trail for explicit recommendation applications. changedFields stores
+// field, previousValue and proposedValue for every committed change.
+model UserStoryDorAudit {
+  id                    String   @id @default(cuid())
+  userStoryId           String
+  userStory             UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action                String   @default("APPLY_FIXES")
+  changedFields         Json
+  appliedRecommendations Json
+  createdAt             DateTime @default(now())
+
+  @@index([userStoryId, createdAt])
+  @@index([userId, createdAt])
 }
 
 // TestSuite model for storing generated functional test suites

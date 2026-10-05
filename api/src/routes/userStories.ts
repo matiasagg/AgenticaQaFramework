@@ -12,6 +12,13 @@ import { PrismaClient } from '@prisma/client';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { validateDoR, UserStoryInput, DorRecommendation } from '../services/dorValidator';
+import {
+  buildDorFixPreview,
+  buildDorSyncRecommendation,
+  dorFixRequestError,
+  parseDorFixRequest,
+  UserStoryDorFixInput,
+} from '../services/dorFixes';
 import { generateTestSuite, generatePlaywrightSpec, UserStoryForGeneration } from '../services/testSuiteGenerator';
 import { analyzeUserStoryWithAI } from '../services/geminiAI';
 import {
@@ -338,6 +345,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   // Obtener la HDU de la base de datos
   const userStory = await prisma.userStory.findFirst({
     where: { id: req.params.id, userId: req.user!.id },
+    include: { project: { select: { repository: true } } },
   });
 
   if (!userStory) {
@@ -368,6 +376,10 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
         // Recomendaciones vinculadas a su punto DoR (HDU-012). Si la caché es
         // antigua y no las tiene, se devuelve un array vacío (frontend legacy).
         recommendationsDetailed: cached.recommendationsDetailed || [],
+        // La sincronización puede ocurrir después de generar este análisis.
+        // Recalcularlo desde la HDU evita mostrar un aviso pendiente obsoleto
+        // cuando el resto del checklist todavía proviene de la caché.
+        syncRecommendation: buildDorSyncRecommendation(userStory, userStory.project),
         cached: true,
         validatedAt: cached.validatedAt,
       };
@@ -452,6 +464,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
     ...validationResult.recommendationsDetailed,
     ...aiDetailed,
   ];
+  const syncRecommendation = buildDorSyncRecommendation(userStory, userStory.project);
 
   // Actualizar la HDU con los resultados combinados
   // Guardamos TODO el resultado (checklist, summary, recomendaciones y análisis IA)
@@ -461,38 +474,59 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   // siguiente validación vuelva a intentar conectarse a Gemini (la caché queda
   // sin aiAnalysis y el GET vuelve a re-ejecutar el análisis).
   const validatedAt = new Date().toISOString();
-  const updatedStory = await prisma.userStory.update({
-    where: { id: req.params.id },
-    data: {
-      dorScore: finalScore,
-      dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
-      isReady: isReady,
-      staticAnalysis: JSON.parse(JSON.stringify({
-        validatedAt,
+  const validationSnapshot = JSON.parse(JSON.stringify({
+    validatedAt,
+    qualityScore: finalScore,
+    summary: validationResult.summary,
+    checklist: validationResult.checklist,
+    recommendations: allRecommendations,
+    recommendationsDetailed: allRecommendationsDetailed,
+    syncRecommendation,
+    aiAnalysis: aiAnalysis && !aiError ? {
+      score: aiAnalysis.score,
+      suggestions: aiAnalysis.suggestions,
+      suggestionsDetailed: aiAnalysis.suggestionsDetailed,
+      missingElements: aiAnalysis.missingElements,
+      riskAreas: aiAnalysis.riskAreas,
+      improvedDescription: aiAnalysis.improvedDescription,
+    } : null,
+    aiError,
+  }));
+
+  const updatedStory = await prisma.$transaction(async (tx) => {
+    const updated = await tx.userStory.update({
+      where: { id: req.params.id },
+      data: {
+        dorScore: finalScore,
+        dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
+        isReady,
+        staticAnalysis: validationSnapshot,
         qualityScore: finalScore,
-        summary: validationResult.summary,
-        checklist: validationResult.checklist,
-        recommendations: allRecommendations,
-        // Recomendaciones vinculadas a su punto DoR (HDU-012), persistidas para
-        // servirlas desde caché y renderizar el reporte "punto a punto".
-        recommendationsDetailed: allRecommendationsDetailed,
-        aiAnalysis: aiAnalysis && !aiError ? {
-          score: aiAnalysis.score,
-          suggestions: aiAnalysis.suggestions,
-          suggestionsDetailed: aiAnalysis.suggestionsDetailed,
-          missingElements: aiAnalysis.missingElements,
-          riskAreas: aiAnalysis.riskAreas,
-          improvedDescription: aiAnalysis.improvedDescription,
-        } : null,
-        aiError,
-      })),
-      qualityScore: finalScore,
-      status: isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
-    },
-    include: {
-      project: true,
-      testSuite: true,
-    },
+        status: isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
+        workflowState: isReady ? 'DOR_DONE' : 'DOR_IN_PROGRESS',
+      },
+      include: {
+        project: true,
+        testSuite: true,
+      },
+    });
+
+    await tx.userStoryDorValidation.create({
+      data: {
+        userStoryId: req.params.id,
+        userId: req.user!.id,
+        source: aiAnalysis && !aiError ? 'AI' : 'RULES',
+        score: finalScore,
+        isReady,
+        checklist: JSON.parse(JSON.stringify(validationResult.checklist)),
+        recommendations: JSON.parse(JSON.stringify(allRecommendationsDetailed)),
+        aiAnalysis: aiAnalysis && !aiError ? JSON.parse(JSON.stringify(aiAnalysis)) : undefined,
+        syncRecommendation: JSON.parse(JSON.stringify(syncRecommendation)),
+        validatedAt: new Date(validatedAt),
+      },
+    });
+
+    return updated;
   });
 
   res.json({
@@ -504,6 +538,7 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
       recommendations: allRecommendations,
       // Recomendaciones vinculadas a su punto DoR (HDU-012)
       recommendationsDetailed: allRecommendationsDetailed,
+      syncRecommendation,
       cached: false,
       validatedAt,
       nextStatus: workflowState.nextStatus,
@@ -515,130 +550,198 @@ router.post('/:id/validate-dor', asyncHandler(async (req: AuthenticatedRequest, 
   });
 }));
 
+/** POST /api/user-stories/:id/preview-dor-fixes */
+router.post('/:id/preview-dor-fixes', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  let request;
+  try {
+    request = parseDorFixRequest(req.body);
+  } catch (error) {
+    throw dorFixRequestError(error);
+  }
+
+  const userStory = await prisma.userStory.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+    include: { project: { select: { repository: true } } },
+  });
+  if (!userStory) throw new ApiError('Historia de usuario no encontrada', 404);
+
+  const preview = buildDorFixPreview(userStory as UserStoryDorFixInput, request);
+  res.json({
+    userStory,
+    preview,
+    syncRecommendation: buildDorSyncRecommendation(userStory, userStory.project),
+  });
+}));
+
 /**
  * POST /api/user-stories/:id/apply-dor-fixes
- * Aplica uno o varios parches DoR a la HDU (HDU-012).
+ * Confirma una selección previamente previsualizada.
  *
- * El frontend envía los `field`/`value` que el usuario aceptó del reporte DoR
- * (ej: storyPoints=5, priority=MEDIUM). Se reutiliza la misma lógica que el PUT
- * para actualizar la HDU, se revalida el DoR y se marca la HDU como UNSYNCED
- * para habilitar la sincronización posterior con GitHub.
- *
- * Body: { fixes?: DorSuggestedFix[], recommendations?: { checkId: string, checkName?: string, message: string }[] }
- *
- * HDU-003: además de parches de campo, se pueden agregar recomendaciones
- * individuales (una a una) del reporte DoR. Cada recomendación se añade como
- * una nota técnica etiquetada con el punto del checklist al que pertenece,
- * para que el QA vea en la HDU de dónde salió la mejora.
+ * La actualización se ejecuta dentro de una transacción: si falla la HDU, la
+ * auditoría o el snapshot de revalidación, no queda ningún cambio parcial.
  */
 router.post('/:id/apply-dor-fixes', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { fixes, recommendations } = req.body;
-  const hasFixes = Array.isArray(fixes) && fixes.length > 0;
-  const hasRecommendations = Array.isArray(recommendations) && recommendations.length > 0;
-  if (!hasFixes && !hasRecommendations) {
-    throw new ApiError('Falta fixes (array de parches { field, value }) o recommendations (array de { checkId, message })', 400);
+  let request;
+  try {
+    request = parseDorFixRequest(req.body);
+  } catch (error) {
+    throw dorFixRequestError(error);
   }
 
-  const existingStory = await prisma.userStory.findFirst({
-    where: { id: req.params.id, userId: req.user!.id },
-  });
-  if (!existingStory) {
-    throw new ApiError('Historia de usuario no encontrada', 404);
-  }
+  const result = await prisma.$transaction(async (tx) => {
+    const existingStory = await tx.userStory.findFirst({
+      where: { id: req.params.id, userId: req.user!.id },
+      include: { project: { select: { repository: true } } },
+    });
+    if (!existingStory) throw new ApiError('Historia de usuario no encontrada', 404);
 
-  // Construir el update a partir de los parches, validando cada campo permitido.
-  const updateData: any = {};
+    if (request.baseUpdatedAt && new Date(request.baseUpdatedAt).getTime() !== existingStory.updatedAt.getTime()) {
+      throw new ApiError('La HDU cambió mientras revisabas la previsualización. Vuelve a generar el preview antes de confirmar.', 409);
+    }
 
-  // ── HDU-003: agregar recomendaciones una a una como notas técnicas ──
-  // Cada nota se guarda con el prefijo "[DoR:<punto>]" para trazabilidad.
-  // Se evita duplicar notas si la misma recomendación ya fue agregada.
-  if (hasRecommendations) {
-    const existingNotes: string[] = Array.isArray(existingStory.technicalNotes)
+    const preview = buildDorFixPreview(existingStory as UserStoryDorFixInput, request);
+    if (preview.conflicts.length > 0) {
+      throw new ApiError('La selección contiene recomendaciones incompatibles. Resuelve el conflicto antes de confirmar.', 409);
+    }
+
+    const updateData: any = {};
+    for (const change of preview.changes) {
+      if (change.field === 'acceptanceCriteria') {
+        updateData.acceptanceCriteria = { set: change.proposedValue as string[] };
+      } else {
+        updateData[change.field] = change.proposedValue;
+      }
+    }
+
+    // HDU-003: cada recomendación seleccionada queda trazable como nota técnica.
+    const existingNotes = Array.isArray(existingStory.technicalNotes)
       ? [...existingStory.technicalNotes]
       : [];
-    let added = 0;
-    for (const rec of recommendations) {
-      if (!rec || typeof rec.message !== 'string' || rec.message.trim() === '') continue;
-      const checkLabel = typeof rec.checkName === 'string' && rec.checkName ? rec.checkName : rec.checkId || 'DoR';
-      const note = `[DoR: ${checkLabel}] ${rec.message.trim()}`;
-      if (existingNotes.includes(note)) continue; // ya agregada, no duplicar
-      existingNotes.push(note);
-      added++;
+    let notesAdded = 0;
+    for (const recommendation of request.recommendations) {
+      const note = `[DoR: ${recommendation.checkName || recommendation.checkId}] ${recommendation.message}`;
+      if (!existingNotes.includes(note)) {
+        existingNotes.push(note);
+        notesAdded++;
+      }
     }
-    if (added > 0) {
-      updateData.technicalNotes = { set: existingNotes };
+    if (notesAdded > 0) updateData.technicalNotes = { set: existingNotes };
+
+    if (preview.changes.length === 0 && notesAdded === 0) {
+      throw new ApiError('Ninguna de las mejoras seleccionadas cambia la HDU.', 400);
     }
-  }
 
-  if (hasFixes) for (const fix of fixes) {
-    if (!fix || typeof fix !== 'object') continue;
-    switch (fix.field) {
-      case 'title':
-        updateData.title = String(fix.value);
-        break;
-      case 'description':
-        updateData.description = String(fix.value);
-        break;
-      case 'acceptanceCriteria':
-        updateData.acceptanceCriteria = {
-          set: Array.isArray(fix.value) ? fix.value.map(String) : [String(fix.value)],
-        };
-        break;
-      case 'priority':
-        updateData.priority = String(fix.value);
-        break;
-      case 'storyPoints':
-        updateData.storyPoints = Number(fix.value);
-        break;
-      default:
-        // Campo no reconocido: se ignora para no romper la actualización.
-        break;
-    }
-  }
+    if (existingStory.externalSystem === 'GITHUB') updateData.syncStatus = 'UNSYNCED';
 
-  if (Object.keys(updateData).length === 0) {
-    throw new ApiError('Ninguna de las mejoras enviadas es aplicable (ya existen o no son válidas)', 400);
-  }
+    const merged = {
+      title: updateData.title ?? existingStory.title,
+      description: updateData.description ?? existingStory.description,
+      acceptanceCriteria: updateData.acceptanceCriteria?.set ?? existingStory.acceptanceCriteria,
+      priority: updateData.priority ?? existingStory.priority,
+      storyPoints: updateData.storyPoints ?? existingStory.storyPoints ?? undefined,
+    };
+    const validationResult = validateDoR(merged);
+    const syncRecommendation = buildDorSyncRecommendation(existingStory, existingStory.project);
+    const changedFields: Array<{
+      field: string;
+      previousValue: string | string[] | number | null;
+      proposedValue: string | string[] | number | null;
+    }> = preview.changes.map((change) => ({
+      field: change.field,
+      previousValue: change.previousValue,
+      proposedValue: change.proposedValue,
+    }));
+    if (notesAdded > 0) changedFields.push({
+      field: 'technicalNotes',
+      previousValue: existingStory.technicalNotes,
+      proposedValue: existingNotes,
+    });
 
-  // Si la HDU proviene de GitHub, marcarla como UNSYNCED para permitir el push.
-  if (existingStory.externalSystem === 'GITHUB') {
-    updateData.syncStatus = 'UNSYNCED';
-  }
+    updateData.dorScore = validationResult.score;
+    updateData.dorChecklist = JSON.parse(JSON.stringify(validationResult.checklist));
+    updateData.isReady = validationResult.isReady;
+    updateData.qualityScore = validationResult.score;
+    updateData.staticAnalysis = null;
+    updateData.status = 'DOR_IN_PROGRESS';
+    updateData.workflowState = 'DOR_IN_PROGRESS';
 
-  // Revalidar el DoR estático con los nuevos valores (sin IA, para respuesta rápida).
-  const merged = {
-    title: updateData.title ?? existingStory.title,
-    description: updateData.description ?? existingStory.description,
-    acceptanceCriteria: updateData.acceptanceCriteria?.set ?? existingStory.acceptanceCriteria,
-    priority: updateData.priority ?? existingStory.priority,
-    storyPoints: updateData.storyPoints ?? existingStory.storyPoints ?? undefined,
-  };
-  const validationResult = validateDoR(merged);
+    const updatedStory = await tx.userStory.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { project: true, epic: true, feature: true, testSuite: true },
+    });
 
-  updateData.dorScore = validationResult.score;
-  updateData.dorChecklist = JSON.parse(JSON.stringify(validationResult.checklist));
-  updateData.isReady = validationResult.isReady;
-  updateData.qualityScore = validationResult.score;
-  // Invalidar el análisis IA anterior: los datos evaluados ya cambiaron.
-  updateData.staticAnalysis = null;
+    await tx.userStoryDorAudit.create({
+      data: {
+        userStoryId: req.params.id,
+        userId: req.user!.id,
+        action: 'APPLY_FIXES',
+        changedFields: JSON.parse(JSON.stringify(changedFields)),
+        appliedRecommendations: JSON.parse(JSON.stringify(request.recommendations)),
+      },
+    });
 
-  const updatedStory = await prisma.userStory.update({
-    where: { id: req.params.id },
-    data: updateData,
-    include: { project: true, epic: true, feature: true, testSuite: true },
+    await tx.userStoryDorValidation.create({
+      data: {
+        userStoryId: req.params.id,
+        userId: req.user!.id,
+        source: 'APPLY_STATIC',
+        score: validationResult.score,
+        isReady: validationResult.isReady,
+        checklist: JSON.parse(JSON.stringify(validationResult.checklist)),
+        recommendations: JSON.parse(JSON.stringify(validationResult.recommendationsDetailed)),
+        syncRecommendation: JSON.parse(JSON.stringify(syncRecommendation)),
+      },
+    });
+
+    return {
+      updatedStory,
+      preview,
+      validationResult,
+      changedFields,
+      notesAdded,
+      syncRecommendation: buildDorSyncRecommendation(updatedStory, updatedStory.project),
+    };
   });
 
   res.json({
-    userStory: updatedStory,
+    userStory: result.updatedStory,
     validation: {
-      ...validationResult,
+      ...result.validationResult,
       cached: false,
+      syncRecommendation: result.syncRecommendation,
     },
-    appliedCount: Object.keys(updateData).filter(
-      (k) => !['syncStatus', 'dorScore', 'dorChecklist', 'isReady', 'qualityScore'].includes(k)
-    ).length,
-    syncStatus: updatedStory.syncStatus,
+    changedFields: result.changedFields.map((change) => change.field),
+    appliedRecommendations: result.preview.selectedRecommendations,
+    pendingRecommendations: result.preview.pendingRecommendations,
+    appliedCount: result.preview.changes.length + result.notesAdded,
+    syncStatus: result.updatedStory.syncStatus,
+    syncRecommendation: result.syncRecommendation,
   });
+}));
+
+/** GET /api/user-stories/:id/dor-history */
+router.get('/:id/dor-history', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const userStory = await prisma.userStory.findFirst({
+    where: { id: req.params.id, userId: req.user!.id },
+    select: { id: true },
+  });
+  if (!userStory) throw new ApiError('Historia de usuario no encontrada', 404);
+
+  const [validations, audits] = await Promise.all([
+    prisma.userStoryDorValidation.findMany({
+      where: { userStoryId: req.params.id, userId: req.user!.id },
+      orderBy: { validatedAt: 'desc' },
+      take: 50,
+    }),
+    prisma.userStoryDorAudit.findMany({
+      where: { userStoryId: req.params.id, userId: req.user!.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+  ]);
+
+  res.json({ validations, audits });
 }));
 
 /**
