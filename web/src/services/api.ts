@@ -115,8 +115,18 @@ export const bugsApi = {
     return response.data
   },
 
-  applyDorFixes: async (id: string, fixes: Array<{ field: string; value: string | string[] | number }>) => {
-    const response = await api.post(`/bugs/${id}/apply-dor-fixes`, { fixes })
+  previewDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/bugs/${id}/preview-dor-fixes`, payload)
+    return response.data
+  },
+
+  applyDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/bugs/${id}/apply-dor-fixes`, payload)
+    return response.data
+  },
+
+  getDorHistory: async (id: string) => {
+    const response = await api.get(`/bugs/${id}/dor-history`)
     return response.data
   },
 
@@ -385,6 +395,26 @@ export const epicsApi = {
     const response = await api.delete(`/epics/${id}`)
     return response.data
   },
+
+  validateDor: async (id: string) => {
+    const response = await api.post(`/epics/${id}/validate-dor`)
+    return response.data
+  },
+
+  previewDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/epics/${id}/preview-dor-fixes`, payload)
+    return response.data
+  },
+
+  applyDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/epics/${id}/apply-dor-fixes`, payload)
+    return response.data
+  },
+
+  getDorHistory: async (id: string) => {
+    const response = await api.get(`/epics/${id}/dor-history`)
+    return response.data
+  },
 }
 
 // Features services
@@ -414,6 +444,26 @@ export const featuresApi = {
 
   delete: async (id: string) => {
     const response = await api.delete(`/features/${id}`)
+    return response.data
+  },
+
+  validateDor: async (id: string) => {
+    const response = await api.post(`/features/${id}/validate-dor`)
+    return response.data
+  },
+
+  previewDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/features/${id}/preview-dor-fixes`, payload)
+    return response.data
+  },
+
+  applyDorFixes: async (id: string, payload: unknown) => {
+    const response = await api.post(`/features/${id}/apply-dor-fixes`, payload)
+    return response.data
+  },
+
+  getDorHistory: async (id: string) => {
+    const response = await api.get(`/features/${id}/dor-history`)
     return response.data
   },
 }

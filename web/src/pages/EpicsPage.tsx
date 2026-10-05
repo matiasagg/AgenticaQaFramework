@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { epicsApi, projectsApi } from '../services/api'
+import PortfolioDorModal from '../components/dor/PortfolioDorModal'
 
 /** Épica como viene de la API */
 interface EpicItem {
@@ -21,6 +22,8 @@ interface EpicItem {
   userStories?: Array<{ id: string; title: string; status: string }>
   createdAt: string
   updatedAt: string
+  dorScore?: number | null
+  isReady?: boolean
 }
 
 export default function EpicsPage() {
@@ -35,6 +38,13 @@ export default function EpicsPage() {
     description: '',
     projectId: '',
   })
+  const [dorEntity, setDorEntity] = useState<EpicItem | null>(null)
+  const [dorValidation, setDorValidation] = useState<any>(null)
+  const [dorPreview, setDorPreview] = useState<any>(null)
+  const [selectedDorFixes, setSelectedDorFixes] = useState<string[]>([])
+  const [validatingDor, setValidatingDor] = useState(false)
+  const [previewingDor, setPreviewingDor] = useState(false)
+  const [applyingDor, setApplyingDor] = useState(false)
 
   useEffect(() => {
     if (token) {
@@ -102,6 +112,69 @@ export default function EpicsPage() {
     }
   }
 
+  const closeDor = () => {
+    setDorEntity(null)
+    setDorValidation(null)
+    setDorPreview(null)
+    setSelectedDorFixes([])
+  }
+
+  const validateEpicDor = async (epic: EpicItem) => {
+    setDorEntity(epic)
+    setValidatingDor(true)
+    setDorPreview(null)
+    setSelectedDorFixes([])
+    try {
+      const response = await epicsApi.validateDor(epic.id)
+      setDorValidation(response.validation)
+      if (response.epic) {
+        setDorEntity(response.epic)
+        setEpics((current) => current.map((item) => item.id === epic.id ? response.epic : item))
+      }
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al validar el DoR de la épica')
+    } finally {
+      setValidatingDor(false)
+    }
+  }
+
+  const getDorRecommendations = () => (dorValidation?.checklist || [])
+    .filter((item: any) => selectedDorFixes.includes(item.id) && item.suggestedFix)
+    .map((item: any) => ({ checkId: item.id, checkName: item.name, message: item.suggestion || item.name, source: 'rules', suggestedFix: item.suggestedFix }))
+
+  const previewEpicDor = async () => {
+    if (!dorEntity) return
+    setPreviewingDor(true)
+    try {
+      const recommendations = getDorRecommendations()
+      const response = await epicsApi.previewDorFixes(dorEntity.id, { fixes: recommendations.map((item: any) => item.suggestedFix), recommendations })
+      setDorPreview(response.preview)
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al previsualizar las mejoras')
+    } finally {
+      setPreviewingDor(false)
+    }
+  }
+
+  const applyEpicDor = async () => {
+    if (!dorEntity || !dorPreview) return
+    setApplyingDor(true)
+    try {
+      const recommendations = getDorRecommendations()
+      const response = await epicsApi.applyDorFixes(dorEntity.id, { fixes: recommendations.map((item: any) => item.suggestedFix), recommendations, baseUpdatedAt: dorPreview.baseUpdatedAt })
+      setDorEntity(response.epic)
+      setEpics((current) => current.map((item) => item.id === dorEntity.id ? response.epic : item))
+      setDorPreview(null)
+      setSelectedDorFixes([])
+      setDorValidation(response.validation)
+      alert(`✅ Mejoras aplicadas. Campos modificados: ${(response.changedFields || []).join(', ')}`)
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al aplicar las mejoras')
+    } finally {
+      setApplyingDor(false)
+    }
+  }
+
   const handleEdit = (epic: EpicItem) => {
     setEditingEpic(epic)
     setFormData({ name: epic.name, description: epic.description || '', projectId: epic.projectId })
@@ -143,6 +216,23 @@ export default function EpicsPage() {
 
   return (
     <div className="space-y-6">
+      {validatingDor && <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center text-white">Validando DoR...</div>}
+      <PortfolioDorModal
+        entity={dorEntity || { name: '', description: '' }}
+        entityLabel="Épica"
+        validation={dorValidation}
+        preview={dorPreview}
+        selectedFixes={selectedDorFixes}
+        onToggleFix={(checkId, checked) => setSelectedDorFixes((current) => checked ? [...current, checkId] : current.filter((id) => id !== checkId))}
+        onPreview={previewEpicDor}
+        onConfirm={applyEpicDor}
+        onCancelPreview={() => setDorPreview(null)}
+        onRefresh={() => dorEntity && validateEpicDor(dorEntity)}
+        onClose={closeDor}
+        isRefreshing={validatingDor}
+        isPreviewing={previewingDor}
+        isApplying={applyingDor}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -268,6 +358,11 @@ export default function EpicsPage() {
                     >
                       {getStatusLabel(epic.status)}
                     </span>
+                    {epic.dorScore !== null && epic.dorScore !== undefined && (
+                      <span className={`px-2 py-1 rounded-full text-xs ${epic.dorScore >= 70 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        DoR: {epic.dorScore}%
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {epic.description}
@@ -300,6 +395,7 @@ export default function EpicsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200" onClick={() => validateEpicDor(epic)}>Analizar DoR</button>
                   <button className="btn-ghost" onClick={() => handleEdit(epic)}>Editar</button>
                   <button
                     onClick={() => handleDelete(epic.id)}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { epicsApi, featuresApi } from '../services/api'
+import PortfolioDorModal from '../components/dor/PortfolioDorModal'
 
 interface FeatureItem {
   id: string
@@ -10,6 +11,9 @@ interface FeatureItem {
   epicId: string
   epic?: { id: string; name: string }
   createdAt: string
+  updatedAt?: string
+  dorScore?: number | null
+  isReady?: boolean
 }
 
 export default function FeaturesPage() {
@@ -20,6 +24,13 @@ export default function FeaturesPage() {
   const [editing, setEditing] = useState<FeatureItem | null>(null)
   const [epics, setEpics] = useState<any[]>([])
   const [formData, setFormData] = useState({ name: '', description: '', epicId: '' })
+  const [dorEntity, setDorEntity] = useState<FeatureItem | null>(null)
+  const [dorValidation, setDorValidation] = useState<any>(null)
+  const [dorPreview, setDorPreview] = useState<any>(null)
+  const [selectedDorFixes, setSelectedDorFixes] = useState<string[]>([])
+  const [validatingDor, setValidatingDor] = useState(false)
+  const [previewingDor, setPreviewingDor] = useState(false)
+  const [applyingDor, setApplyingDor] = useState(false)
 
   useEffect(() => {
     if (token) {
@@ -82,10 +93,90 @@ export default function FeaturesPage() {
     }
   }
 
+  const closeDor = () => {
+    setDorEntity(null)
+    setDorValidation(null)
+    setDorPreview(null)
+    setSelectedDorFixes([])
+  }
+
+  const validateFeatureDor = async (feature: FeatureItem) => {
+    setDorEntity(feature)
+    setValidatingDor(true)
+    setDorPreview(null)
+    setSelectedDorFixes([])
+    try {
+      const response = await featuresApi.validateDor(feature.id)
+      setDorValidation(response.validation)
+      if (response.feature) {
+        setDorEntity(response.feature)
+        setFeatures((current) => current.map((item) => item.id === feature.id ? response.feature : item))
+      }
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al validar el DoR de la feature')
+    } finally {
+      setValidatingDor(false)
+    }
+  }
+
+  const getDorRecommendations = () => (dorValidation?.checklist || [])
+    .filter((item: any) => selectedDorFixes.includes(item.id) && item.suggestedFix)
+    .map((item: any) => ({ checkId: item.id, checkName: item.name, message: item.suggestion || item.name, source: 'rules', suggestedFix: item.suggestedFix }))
+
+  const previewFeatureDor = async () => {
+    if (!dorEntity) return
+    setPreviewingDor(true)
+    try {
+      const recommendations = getDorRecommendations()
+      const response = await featuresApi.previewDorFixes(dorEntity.id, { fixes: recommendations.map((item: any) => item.suggestedFix), recommendations })
+      setDorPreview(response.preview)
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al previsualizar las mejoras')
+    } finally {
+      setPreviewingDor(false)
+    }
+  }
+
+  const applyFeatureDor = async () => {
+    if (!dorEntity || !dorPreview) return
+    setApplyingDor(true)
+    try {
+      const recommendations = getDorRecommendations()
+      const response = await featuresApi.applyDorFixes(dorEntity.id, { fixes: recommendations.map((item: any) => item.suggestedFix), recommendations, baseUpdatedAt: dorPreview.baseUpdatedAt })
+      setDorEntity(response.feature)
+      setFeatures((current) => current.map((item) => item.id === dorEntity.id ? response.feature : item))
+      setDorPreview(null)
+      setSelectedDorFixes([])
+      setDorValidation(response.validation)
+      alert(`✅ Mejoras aplicadas. Campos modificados: ${(response.changedFields || []).join(', ')}`)
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al aplicar las mejoras')
+    } finally {
+      setApplyingDor(false)
+    }
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" /></div>
 
   return (
     <div className="space-y-6">
+      {validatingDor && <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center text-white">Validando DoR...</div>}
+      <PortfolioDorModal
+        entity={dorEntity ? { name: dorEntity.name, description: dorEntity.description || '' } : { name: '', description: '' }}
+        entityLabel="Feature"
+        validation={dorValidation}
+        preview={dorPreview}
+        selectedFixes={selectedDorFixes}
+        onToggleFix={(checkId, checked) => setSelectedDorFixes((current) => checked ? [...current, checkId] : current.filter((id) => id !== checkId))}
+        onPreview={previewFeatureDor}
+        onConfirm={applyFeatureDor}
+        onCancelPreview={() => setDorPreview(null)}
+        onRefresh={() => dorEntity && validateFeatureDor(dorEntity)}
+        onClose={closeDor}
+        isRefreshing={validatingDor}
+        isPreviewing={previewingDor}
+        isApplying={applyingDor}
+      />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Features</h1>
@@ -135,11 +226,19 @@ export default function FeaturesPage() {
             <div key={f.id} className="card dark:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">{f.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{f.name}</h3>
+                    {f.dorScore !== null && f.dorScore !== undefined && (
+                      <span className={`px-2 py-1 rounded-full text-xs ${f.dorScore >= 70 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        DoR: {f.dorScore}%
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{f.description}</p>
                   <div className="mt-2 text-sm text-gray-500">Epic: {f.epic?.name || 'Sin epic'}</div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200" onClick={() => validateFeatureDor(f)}>Analizar DoR</button>
                   <button className="btn-ghost" onClick={() => handleEdit(f)}>Editar</button>
                   <button className="btn-danger" onClick={() => handleDelete(f.id)}>Eliminar</button>
                 </div>

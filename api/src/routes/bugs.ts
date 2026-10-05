@@ -6,6 +6,13 @@ import { validateDoR } from '../services/dorValidator';
 import { analyzeUserStoryWithAI } from '../services/geminiAI';
 import { updateGitHubIssue, buildIssueBodyFromBug, buildGitHubBugTitle } from '../services/githubIntegration';
 import { decryptApiKey } from '../utils/encryption';
+import {
+  buildPortfolioDorPreview,
+  parsePortfolioDorFixRequest,
+  portfolioDorRequestError,
+  validatePortfolioDor,
+  PortfolioDorInput,
+} from '../services/portfolioDor';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -179,31 +186,52 @@ router.post('/:id/validate-dor', async (req: AuthenticatedRequest, res: Response
 
     // Actualizar el bug con los resultados combinados
     const validatedAt = new Date().toISOString();
-    const updatedBug = await prisma.bugReport.update({
-      where: { id: bug.id },
-      data: {
+    const staticAnalysis = JSON.parse(JSON.stringify({
+      validatedAt,
+      qualityScore: finalScore,
+      summary: validationResult.summary,
+      checklist: validationResult.checklist,
+      recommendations: allRecommendations,
+      recommendationsDetailed: allRecommendationsDetailed,
+      aiAnalysis: aiAnalysis && !aiError ? {
+        score: aiAnalysis.score,
+        suggestions: aiAnalysis.suggestions,
+        suggestionsDetailed: aiAnalysis.suggestionsDetailed,
+        missingElements: aiAnalysis.missingElements,
+        riskAreas: aiAnalysis.riskAreas,
+        improvedDescription: aiAnalysis.improvedDescription,
+      } : null,
+      aiError,
+    }));
+
+    const updatedBug = await prisma.$transaction(async (tx) => {
+      const updated = await tx.bugReport.update({
+        where: { id: bug.id },
+        data: {
         dorScore: finalScore,
         dorChecklist: JSON.parse(JSON.stringify(validationResult.checklist)),
         isReady,
-        staticAnalysis: JSON.parse(JSON.stringify({
-          validatedAt,
-          qualityScore: finalScore,
-          summary: validationResult.summary,
-          checklist: validationResult.checklist,
-          recommendations: allRecommendations,
-          recommendationsDetailed: allRecommendationsDetailed,
-          aiAnalysis: aiAnalysis && !aiError ? {
-            score: aiAnalysis.score,
-            suggestions: aiAnalysis.suggestions,
-            suggestionsDetailed: aiAnalysis.suggestionsDetailed,
-            missingElements: aiAnalysis.missingElements,
-            riskAreas: aiAnalysis.riskAreas,
-            improvedDescription: aiAnalysis.improvedDescription,
-          } : null,
-          aiError,
-        })),
-      },
-      include: { evidence: true, project: true, agent: true },
+        staticAnalysis,
+        },
+        include: { evidence: true, project: true, agent: true },
+      });
+
+      await tx.dorEntityValidation.create({
+        data: {
+          entityType: 'BUG',
+          entityId: bug.id,
+          userId: req.user!.id,
+          source: aiAnalysis && !aiError ? 'AI' : 'RULES',
+          score: finalScore,
+          isReady,
+          checklist: JSON.parse(JSON.stringify(validationResult.checklist)),
+          recommendations: JSON.parse(JSON.stringify(allRecommendationsDetailed)),
+          aiAnalysis: aiAnalysis && !aiError ? JSON.parse(JSON.stringify(aiAnalysis)) : undefined,
+          validatedAt: new Date(validatedAt),
+        },
+      });
+
+      return updated;
     });
 
     res.json({
@@ -214,6 +242,9 @@ router.post('/:id/validate-dor', async (req: AuthenticatedRequest, res: Response
         isReady,
         recommendations: allRecommendations,
         recommendationsDetailed: allRecommendationsDetailed,
+        syncRecommendation: bug.githubId
+          ? { action: 'SYNC', pendingChanges: false, message: 'El bug está vinculado a GitHub. Puedes revisar y sincronizar cambios explícitamente.' }
+          : { action: 'NONE', pendingChanges: false, message: 'El bug no está vinculado a GitHub.' },
         cached: false,
         validatedAt,
       },
@@ -226,107 +257,125 @@ router.post('/:id/validate-dor', async (req: AuthenticatedRequest, res: Response
   }
 });
 
-// POST /api/bugs/:id/apply-dor-fixes - Aplica parches DoR al bug
+// POST /api/bugs/:id/preview-dor-fixes - Previsualiza cambios DoR sin mutar el bug
+router.post('/:id/preview-dor-fixes', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const request = parsePortfolioDorFixRequest(req.body, 'BUG');
+    const bug = await prisma.bugReport.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
+    if (!bug) throw new ApiError('Bug not found', 404);
+    const preview = buildPortfolioDorPreview('BUG', bug as unknown as Record<string, unknown>, request);
+    res.json({ bug, preview });
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw portfolioDorRequestError(error);
+  }
+});
+
+// POST /api/bugs/:id/apply-dor-fixes - Confirma cambios DoR atómicamente
 router.post('/:id/apply-dor-fixes', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { fixes } = req.body;
-    if (!Array.isArray(fixes) || fixes.length === 0) {
-      throw new ApiError('Falta fixes (array de parches { field, value })', 400);
-    }
-
-    const existingBug = await prisma.bugReport.findFirst({
-      where: { id: req.params.id, userId: req.user!.id },
-    });
-    if (!existingBug) {
-      throw new ApiError('Bug not found', 404);
-    }
-
-    // Construir el update a partir de los parches
-    const updateData: any = {};
-    for (const fix of fixes) {
-      if (!fix || typeof fix !== 'object') continue;
-      switch (fix.field) {
-        case 'title':
-          updateData.title = String(fix.value);
-          break;
-        case 'description':
-          updateData.description = String(fix.value);
-          break;
-        case 'severity':
-          updateData.severity = String(fix.value);
-          break;
-        case 'stepsToReproduce':
-          updateData.stepsToReproduce = {
-            set: Array.isArray(fix.value) ? fix.value.map(String) : [String(fix.value)],
-          };
-          break;
-        case 'expectedResult':
-          updateData.expectedResult = String(fix.value);
-          break;
-        case 'actualResult':
-          updateData.actualResult = String(fix.value);
-          break;
-        case 'environment':
-          updateData.environment = String(fix.value);
-          break;
-        // La HDU expresa estos campos con otro nombre; los mapeamos al campo
-        // equivalente del bug para que los "fixes" sugeridos por el DoR se
-        // apliquen en lugar de ignorarse silenciosamente.
-        case 'priority':
-          updateData.severity = String(fix.value);
-          break;
-        case 'acceptanceCriteria':
-          updateData.stepsToReproduce = {
-            set: Array.isArray(fix.value) ? fix.value.map(String) : [String(fix.value)],
-          };
-          break;
-        default:
-          break;
+    const request = parsePortfolioDorFixRequest(req.body, 'BUG');
+    const result = await prisma.$transaction(async (tx) => {
+      const existingBug = await tx.bugReport.findFirst({ where: { id: req.params.id, userId: req.user!.id } });
+      if (!existingBug) throw new ApiError('Bug not found', 404);
+      if (request.baseUpdatedAt && new Date(request.baseUpdatedAt).getTime() !== existingBug.updatedAt.getTime()) {
+        throw new ApiError('El bug cambió mientras revisabas el preview. Genera una nueva previsualización.', 409);
       }
-    }
 
-    if (Object.keys(updateData).length === 0) {
-      throw new ApiError('Ninguno de los parches enviados es aplicable', 400);
-    }
+      const preview = buildPortfolioDorPreview('BUG', existingBug as unknown as Record<string, unknown>, request);
+      if (preview.conflicts.length) throw new ApiError('La selección contiene recomendaciones incompatibles.', 409);
 
-    // Revalidar el DoR estático con los nuevos valores
-    const merged = {
-      title: updateData.title ?? existingBug.title,
-      description: updateData.description ?? existingBug.description,
-      acceptanceCriteria: [
-        ...((updateData.stepsToReproduce?.set ?? existingBug.stepsToReproduce) || []).map((step: string) => `Reproducir: ${step}`),
-        (updateData.expectedResult ?? existingBug.expectedResult) ? `Resultado esperado: ${updateData.expectedResult ?? existingBug.expectedResult}` : '',
-        (updateData.actualResult ?? existingBug.actualResult) ? `Resultado actual: ${updateData.actualResult ?? existingBug.actualResult}` : '',
-      ].filter(Boolean),
-      priority: updateData.severity ?? existingBug.severity,
-      storyPoints: 1,
-    };
-    const validationResult = validateDoR(merged);
+      const updateData: any = {};
+      for (const change of preview.changes) {
+        switch (change.field) {
+          case 'title':
+          case 'description':
+          case 'severity':
+          case 'expectedResult':
+          case 'actualResult':
+          case 'environment':
+            updateData[change.field] = change.proposedValue;
+            break;
+          case 'priority':
+            updateData.severity = change.proposedValue;
+            break;
+          case 'stepsToReproduce':
+          case 'acceptanceCriteria':
+            updateData.stepsToReproduce = { set: change.proposedValue as string[] };
+            break;
+          default:
+            break;
+        }
+      }
+      if (!preview.changes.length) throw new ApiError('Ninguno de los parches enviados modifica el bug.', 400);
 
-    updateData.dorScore = validationResult.score;
-    updateData.dorChecklist = JSON.parse(JSON.stringify(validationResult.checklist));
-    updateData.isReady = validationResult.isReady;
+      const mergedInput: PortfolioDorInput = {
+        kind: 'BUG',
+        title: updateData.title ?? existingBug.title,
+        description: updateData.description ?? existingBug.description,
+        severity: updateData.severity ?? existingBug.severity,
+        stepsToReproduce: updateData.stepsToReproduce?.set ?? existingBug.stepsToReproduce,
+        expectedResult: updateData.expectedResult ?? existingBug.expectedResult,
+        actualResult: updateData.actualResult ?? existingBug.actualResult,
+      };
+      const validation = validatePortfolioDor(mergedInput);
+      updateData.dorScore = validation.score;
+      updateData.dorChecklist = JSON.parse(JSON.stringify(validation.checklist));
+      updateData.isReady = validation.isReady;
+      updateData.staticAnalysis = Prisma.DbNull;
 
-    const updatedBug = await prisma.bugReport.update({
-      where: { id: req.params.id },
-      data: { ...updateData, staticAnalysis: null },
-      include: { evidence: true, project: true, agent: true },
+      const updatedBug = await tx.bugReport.update({
+        where: { id: existingBug.id },
+        data: updateData,
+        include: { evidence: true, project: true, agent: true },
+      });
+      await tx.dorEntityAudit.create({
+        data: {
+          entityType: 'BUG',
+          entityId: existingBug.id,
+          userId: req.user!.id,
+          changedFields: JSON.parse(JSON.stringify(preview.changes)),
+          appliedRecommendations: JSON.parse(JSON.stringify(request.recommendations)),
+        },
+      });
+      await tx.dorEntityValidation.create({
+        data: {
+          entityType: 'BUG',
+          entityId: existingBug.id,
+          userId: req.user!.id,
+          source: 'APPLY_STATIC',
+          score: validation.score,
+          isReady: validation.isReady,
+          checklist: JSON.parse(JSON.stringify(validation.checklist)),
+          recommendations: JSON.parse(JSON.stringify(validation.recommendationsDetailed)),
+        },
+      });
+      return { updatedBug, validation, preview };
     });
 
     res.json({
-      bug: updatedBug,
-      validation: {
-        ...validationResult,
-        cached: false,
-      },
-      appliedCount: Object.keys(updateData).filter(
-        (k) => !['dorScore', 'dorChecklist', 'isReady'].includes(k)
-      ).length,
+      bug: result.updatedBug,
+      validation: { ...result.validation, cached: false },
+      changedFields: result.preview.changedFields,
+      appliedRecommendations: result.preview.selectedRecommendations,
+      pendingRecommendations: result.preview.pendingRecommendations,
+      appliedCount: result.preview.changes.length,
     });
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError('Failed to apply bug DoR fixes', 500);
+    throw portfolioDorRequestError(error);
   }
+});
+
+// GET /api/bugs/:id/dor-history - Historial y auditoría del bug
+router.get('/:id/dor-history', async (req: AuthenticatedRequest, res: Response) => {
+  const bug = await prisma.bugReport.findFirst({ where: { id: req.params.id, userId: req.user!.id }, select: { id: true } });
+  if (!bug) throw new ApiError('Bug not found', 404);
+  const [validations, audits] = await Promise.all([
+    prisma.dorEntityValidation.findMany({ where: { entityType: 'BUG', entityId: bug.id, userId: req.user!.id }, orderBy: { validatedAt: 'desc' }, take: 50 }),
+    prisma.dorEntityAudit.findMany({ where: { entityType: 'BUG', entityId: bug.id, userId: req.user!.id }, orderBy: { createdAt: 'desc' }, take: 50 }),
+  ]);
+  res.json({ validations, audits });
 });
 
 // POST /api/bugs/:id/push-to-github - Sincroniza los cambios del bug con su issue de GitHub
