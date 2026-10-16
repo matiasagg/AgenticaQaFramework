@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
   const mockUserId = 'user-test-123'
 
   const mockPrisma = {
+    $transaction: vi.fn(),
     project: {
       findFirst: vi.fn(),
     },
@@ -59,6 +60,8 @@ const mocks = vi.hoisted(() => {
   const mockHasGitHubIssueChanged = vi.fn((issue: any, syncedAt?: Date | string | null) =>
     !syncedAt || new Date(issue.updated_at).getTime() > new Date(syncedAt).getTime()
   )
+  const mockReserveHduIdentity = vi.fn()
+  const mockExtractSourceHduDisplayId = vi.fn()
 
   return {
     mockUserId,
@@ -69,6 +72,8 @@ const mocks = vi.hoisted(() => {
     mockMapIssueToUserStory,
     mockBuildIssueDescription,
     mockHasGitHubIssueChanged,
+    mockReserveHduIdentity,
+    mockExtractSourceHduDisplayId,
   }
 })
 
@@ -88,6 +93,12 @@ vi.mock('../../middleware/auth', () => ({
 // Mock de PrismaClient
 vi.mock('@prisma/client', () => ({
   PrismaClient: vi.fn(() => mocks.mockPrisma),
+}))
+
+vi.mock('../../services/hduIdentity', () => ({
+  reserveHduIdentity: (...args: any[]) => mocks.mockReserveHduIdentity(...args),
+  extractSourceHduDisplayId: (...args: any[]) => mocks.mockExtractSourceHduDisplayId(...args),
+  parseHduNumber: vi.fn((value: string | null) => value ? Number(value.replace('HDU-', '')) : null),
 }))
 
 // Mock del servicio githubIntegration
@@ -152,6 +163,9 @@ describe('GitHub Sync Routes', () => {
     mocks.mockHasGitHubIssueChanged.mockImplementation((issue: any, syncedAt?: Date | string | null) =>
       !syncedAt || new Date(issue.updated_at).getTime() > new Date(syncedAt).getTime()
     )
+    mocks.mockPrisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<any>) => callback(mocks.mockPrisma))
+    mocks.mockReserveHduIdentity.mockResolvedValue({ hduNumber: 1, displayId: 'HDU-001', resolution: 'ALLOCATED_NEW' })
+    mocks.mockExtractSourceHduDisplayId.mockReturnValue(null)
     // Por defecto, el proyecto existe con repository configurado
     mocks.mockPrisma.project.findFirst.mockResolvedValue(mockProject)
     mocks.mockPrisma.userStory.findMany.mockResolvedValue([])

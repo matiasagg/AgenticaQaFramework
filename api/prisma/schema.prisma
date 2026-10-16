@@ -34,6 +34,10 @@ model User {
   improvementPlans ImprovementPlan[]
   sessions       Session[]
   userStories    UserStory[]
+  userStoryDorValidations UserStoryDorValidation[]
+  userStoryDorAudits UserStoryDorAudit[]
+  dorEntityValidations DorEntityValidation[]
+  dorEntityAudits DorEntityAudit[]
 }
 
 // Session model for user authentication
@@ -96,6 +100,10 @@ model Epic {
   name        String
   description String
   status      EpicStatus @default(PLANNING)
+  dorScore    Float?
+  dorChecklist Json?
+  isReady     Boolean @default(false)
+  staticAnalysis Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -121,6 +129,10 @@ model Feature {
   name        String
   description String
   status      FeatureStatus @default(DRAFT)
+  dorScore    Float?
+  dorChecklist Json?
+  isReady     Boolean @default(false)
+  staticAnalysis Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -233,6 +245,42 @@ model BugReport {
   evidence        Evidence[]
 }
 
+// Generic immutable DoR snapshots for entities that do not use the HDU
+// workflow tables. entityType/entityId are intentionally polymorphic so the
+// same audit contract works for bugs, features and epics.
+model DorEntityValidation {
+  id                String   @id @default(cuid())
+  entityType        String
+  entityId          String
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source            String
+  score             Float
+  isReady           Boolean
+  checklist         Json
+  recommendations   Json
+  aiAnalysis        Json?
+  validatedAt       DateTime @default(now())
+
+  @@index([entityType, entityId, validatedAt])
+  @@index([userId, validatedAt])
+}
+
+model DorEntityAudit {
+  id                    String   @id @default(cuid())
+  entityType            String
+  entityId              String
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action                String   @default("APPLY_FIXES")
+  changedFields         Json
+  appliedRecommendations Json
+  createdAt             DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+}
+
 // TestCase model for test cases
 model TestCase {
   id              String   @id @default(cuid())
@@ -330,6 +378,9 @@ model UserStory {
   // External sync identity
   externalSystem  String?
   externalId      String?
+  // Identificador visible que traía la fuente externa (por ejemplo, HDU-048
+  // en GitHub). Nunca reemplaza al displayId canónico del SaaS.
+  sourceDisplayId  String?
   externalUrl     String?
   syncStatus      SyncStatus @default(UNSYNCED)
   syncMetadata    Json?
@@ -372,6 +423,8 @@ model UserStory {
   testPlan        TestPlan? @relation(fields: [testPlanId], references: [id])
   testSuite       TestSuite?
   agentAssignments AgentAssignment[]
+  dorValidations  UserStoryDorValidation[]
+  dorAudits       UserStoryDorAudit[]
 
   @@index([projectId])
   @@index([epicId])
@@ -382,6 +435,53 @@ model UserStory {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// SaaS-owned, global allocator for canonical HDU identities. It is separate
+// from external issue numbers and is incremented atomically during creation.
+model HduSequence {
+  id          String   @id
+  nextNumber  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Immutable snapshots of each DoR validation. The current result remains on
+// UserStory for fast reads while this model preserves the validation history.
+model UserStoryDorValidation {
+  id              String   @id @default(cuid())
+  userStoryId     String
+  userStory       UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source          String
+  score           Float
+  isReady         Boolean
+  checklist       Json
+  recommendations Json
+  aiAnalysis      Json?
+  syncRecommendation Json?
+  validatedAt     DateTime @default(now())
+
+  @@index([userStoryId, validatedAt])
+  @@index([userId, validatedAt])
+}
+
+// Audit trail for explicit recommendation applications. changedFields stores
+// field, previousValue and proposedValue for every committed change.
+model UserStoryDorAudit {
+  id                    String   @id @default(cuid())
+  userStoryId           String
+  userStory             UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action                String   @default("APPLY_FIXES")
+  changedFields         Json
+  appliedRecommendations Json
+  createdAt             DateTime @default(now())
+
+  @@index([userStoryId, createdAt])
+  @@index([userId, createdAt])
 }
 
 // TestSuite model for storing generated functional test suites

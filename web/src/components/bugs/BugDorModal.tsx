@@ -14,7 +14,13 @@ interface BugDorModalProps {
   editFormData: any
   onEditFormChange: (data: any) => void
   onSaveBug: () => void
-  onApplyFix: (fix: { field: string; value: string | string[] | number }) => void
+  onPreviewFixes: () => void
+  onConfirmFixes: () => void
+  dorFixPreview?: any
+  selectedDorFixes: string[]
+  onToggleDorFix: (checkId: string, checked: boolean) => void
+  onCancelDorPreview: () => void
+  previewingFixes?: string | null
   applyingFix: string | null
   // Metadatos de GitHub para los combos de edición (igual que en HDU).
   collaborators?: Array<{ login: string }>
@@ -35,7 +41,13 @@ export default function BugDorModal({
   editFormData,
   onEditFormChange,
   onSaveBug,
-  onApplyFix,
+  onPreviewFixes,
+  onConfirmFixes,
+  dorFixPreview,
+  selectedDorFixes,
+  onToggleDorFix,
+  onCancelDorPreview,
+  previewingFixes,
   applyingFix,
   collaborators = [],
   branches = [],
@@ -304,15 +316,12 @@ export default function BugDorModal({
                     <div key={item.id} className="p-2 bg-red-50 dark:bg-red-900/30 rounded border border-red-200 dark:border-red-800">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-medium">{item.name}</span>
-                        {item.suggestedFix && (
-                          <button
-                            onClick={() => onApplyFix(item.suggestedFix)}
-                            disabled={applyingFix === bug.id}
-                            className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 rounded hover:bg-orange-200 disabled:opacity-50"
-                          >
-                            ✨ Aplicar
-                          </button>
-                        )}
+                        {item.suggestedFix ? (
+                          <label className="flex items-center gap-1 text-xs text-orange-700 dark:text-orange-300">
+                            <input type="checkbox" checked={selectedDorFixes.includes(item.id)} onChange={(event) => onToggleDorFix(item.id, event.target.checked)} disabled={Boolean(applyingFix || previewingFixes)} />
+                            Aplicar
+                          </label>
+                        ) : <span className="text-xs text-gray-500">Revisión manual</span>}
                       </div>
                       {item.suggestion && (
                         <p className="text-xs text-red-600 dark:text-red-400 mt-1">
@@ -392,9 +401,34 @@ export default function BugDorModal({
               </div>
             )}
 
+        {dorFixPreview && (
+          <div className="m-4 p-3 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-blue-800 dark:text-blue-200">Previsualización de cambios</h3>
+              <button onClick={onCancelDorPreview} className="text-xs text-gray-500">Cancelar</button>
+            </div>
+            {dorFixPreview.conflicts?.map((conflict: any) => <p key={conflict.field} className="text-xs text-red-700">⚠️ {conflict.message}</p>)}
+            {dorFixPreview.changes?.map((change: any) => (
+              <div key={change.field} className="text-xs border-t border-blue-100 pt-2">
+                <p className="font-medium">{change.field}</p>
+                <p className="text-red-700">Antes: {Array.isArray(change.previousValue) ? change.previousValue.join(' · ') : String(change.previousValue ?? 'Sin definir')}</p>
+                <p className="text-green-700">Después: {Array.isArray(change.proposedValue) ? change.proposedValue.join(' · ') : String(change.proposedValue ?? 'Sin definir')}</p>
+              </div>
+            ))}
+            <button onClick={onConfirmFixes} disabled={Boolean(dorFixPreview.conflicts?.length || !dorFixPreview.changes?.length || applyingFix)} className="w-full px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+              {applyingFix ? '⏳ Aplicando...' : 'Confirmar cambios'}
+            </button>
+          </div>
+        )}
+
         {/* Botones fijos */}
         <div className="p-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <div className="flex justify-end space-x-3">
+            {!dorFixPreview && selectedDorFixes.length > 0 && (
+              <button onClick={onPreviewFixes} disabled={Boolean(previewingFixes || applyingFix)} className="px-3 py-1.5 text-sm bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50">
+                {previewingFixes ? '⏳ Preparando...' : `👁️ Previsualizar (${selectedDorFixes.length})`}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="btn-secondary text-sm"

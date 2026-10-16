@@ -11,7 +11,13 @@ interface BugDetailProps {
   dorResult?: any
   aiAnalysis?: any
   aiError?: string | null
-  onApplyFix?: (fix: { field: string; value: string | string[] | number }) => void
+  onPreviewFixes?: () => void
+  onConfirmFixes?: () => void
+  dorFixPreview?: any
+  selectedDorFixes?: string[]
+  onToggleDorFix?: (checkId: string, checked: boolean) => void
+  onCancelDorPreview?: () => void
+  previewingFixes?: string | null
   onCloseDor?: () => void
   isRefreshing?: boolean
   // Metadatos de GitHub para los combos del modal DoR (igual que en HDU).
@@ -36,7 +42,7 @@ interface BugDetailProps {
   }) => void | Promise<void>
 }
 
-export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult, aiAnalysis, aiError, onApplyFix, onCloseDor, isRefreshing, collaborators = [], branches = [], applyingFix = null, onPushToGitHub, isPushingGithub, onSaveBug }: BugDetailProps) {
+export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor, dorResult, aiAnalysis, aiError, onPreviewFixes, onConfirmFixes, dorFixPreview, selectedDorFixes = [], onToggleDorFix, onCancelDorPreview, previewingFixes, onCloseDor, isRefreshing, collaborators = [], branches = [], applyingFix = null, onPushToGitHub, isPushingGithub, onSaveBug }: BugDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   // Incluye los metadatos de GitHub (assignee, labels, branchName) para que la
   // edición desde el DoR cubra TODOS los datos que luego se validan/sincronizan,
@@ -342,7 +348,13 @@ export default function BugDetail({ bug, onBack, onEdit, onDelete, onValidateDor
         editFormData={editFormData}
         onEditFormChange={setEditFormData}
         onSaveBug={handleSaveBug}
-        onApplyFix={onApplyFix || (() => {})}
+        onPreviewFixes={onPreviewFixes || (() => {})}
+        onConfirmFixes={onConfirmFixes || (() => {})}
+        dorFixPreview={dorFixPreview}
+        selectedDorFixes={selectedDorFixes}
+        onToggleDorFix={onToggleDorFix || (() => {})}
+        onCancelDorPreview={onCancelDorPreview || (() => {})}
+        previewingFixes={previewingFixes}
         applyingFix={applyingFix}
         collaborators={collaborators}
         branches={branches}

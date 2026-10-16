@@ -25,6 +25,9 @@ export default function BugList() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [validatingDor, setValidatingDor] = useState<string | null>(null)
   const [applyingFix, setApplyingFix] = useState<string | null>(null)
+  const [previewingFixes, setPreviewingFixes] = useState<string | null>(null)
+  const [dorFixPreview, setDorFixPreview] = useState<any>(null)
+  const [selectedDorFixes, setSelectedDorFixes] = useState<string[]>([])
   // Bug cuyo "push" a GitHub está en curso (para deshabilitar el botón y evitar dobles envíos).
   const [pushingGithub, setPushingGithub] = useState<string | null>(null)
   // La edición dentro del modal DoR la maneja BugDetail (que incluye los
@@ -74,6 +77,8 @@ export default function BugList() {
    */
   const validateBugDor = async (bugId: string, refresh = false) => {
     setValidatingDor(bugId)
+    setDorFixPreview(null)
+    setSelectedDorFixes([])
     try {
       const response = await bugsApi.validateDor(bugId, refresh)
       setDorResult(response)
@@ -117,20 +122,45 @@ export default function BugList() {
     }
   }
 
-  /**
-   * Aplica un parche DoR específico al bug.
-   * Llama al endpoint /apply-dor-fixes y recarga la validación.
-   */
-  const handleApplyFix = async (fix: { field: string; value: string | string[] | number }) => {
+  const getSelectedBugRecommendations = () => (dorResult?.validation?.checklist || [])
+    .filter((item: any) => selectedDorFixes.includes(item.id) && item.suggestedFix)
+    .map((item: any) => ({ checkId: item.id, checkName: item.name, message: item.suggestion || item.name, source: 'rules', suggestedFix: item.suggestedFix }))
+
+  const handlePreviewFixes = async () => {
     if (!selectedBug) return
+    setPreviewingFixes(selectedBug.id)
+    try {
+      const recommendations = getSelectedBugRecommendations()
+      if (!recommendations.length) {
+        alert('Selecciona al menos una recomendación automática para previsualizar.')
+        return
+      }
+      const response = await bugsApi.previewDorFixes(selectedBug.id, { fixes: recommendations.map((item: any) => item.suggestedFix), recommendations })
+      setDorFixPreview(response.preview)
+    } catch (error: any) {
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al previsualizar las mejoras')
+    } finally {
+      setPreviewingFixes(null)
+    }
+  }
+
+  const handleConfirmFixes = async () => {
+    if (!selectedBug || !dorFixPreview) return
     setApplyingFix(selectedBug.id)
     try {
-      await bugsApi.applyDorFixes(selectedBug.id, [fix])
-      // Recargar la validación para reflejar los cambios
+      const recommendations = getSelectedBugRecommendations()
+      const response = await bugsApi.applyDorFixes(selectedBug.id, {
+        fixes: recommendations.map((item: any) => item.suggestedFix),
+        recommendations,
+        baseUpdatedAt: dorFixPreview.baseUpdatedAt,
+      })
+      if (response.bug) setSelectedBug(response.bug)
+      setDorFixPreview(null)
+      setSelectedDorFixes([])
       await validateBugDor(selectedBug.id, true)
-      alert(`✅ Mejora aplicada: ${fix.field} actualizado correctamente.`)
+      alert(`✅ Mejoras aplicadas. Campos modificados: ${(response.changedFields || []).join(', ')}`)
     } catch (error: any) {
-      alert(error?.response?.data?.error?.message || 'Error al aplicar la mejora')
+      alert(error?.error?.message || error?.response?.data?.error?.message || 'Error al confirmar las mejoras')
     } finally {
       setApplyingFix(null)
     }
@@ -274,8 +304,14 @@ export default function BugList() {
           dorResult={dorResult}
           aiAnalysis={aiAnalysis}
           aiError={aiError}
-          onApplyFix={handleApplyFix}
-          onCloseDor={() => { setDorResult(null); setAiAnalysis(null); setAiError(null); }}
+          onPreviewFixes={handlePreviewFixes}
+          onConfirmFixes={handleConfirmFixes}
+          dorFixPreview={dorFixPreview}
+          selectedDorFixes={selectedDorFixes}
+          onToggleDorFix={(checkId, checked) => setSelectedDorFixes((current) => checked ? [...current, checkId] : current.filter((id) => id !== checkId))}
+          onCancelDorPreview={() => setDorFixPreview(null)}
+          previewingFixes={previewingFixes}
+          onCloseDor={() => { setDorResult(null); setAiAnalysis(null); setAiError(null); setDorFixPreview(null); setSelectedDorFixes([]); }}
           isRefreshing={validatingDor !== null}
           applyingFix={applyingFix}
           onSaveBug={handleSaveBug}

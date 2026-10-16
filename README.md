@@ -171,6 +171,50 @@ npm run dev
 - **Backend API**: http://localhost:3001
 - **Health check**: http://localhost:3001/api/health
 
+## Deploy en Render (gratis)
+
+Este repositorio incluye un blueprint listo para Render en `render.yaml`.
+
+### 1) Crear servicios desde Blueprint
+
+1. En Render, selecciona **New +** -> **Blueprint**.
+2. Conecta este repositorio y la rama que quieras desplegar.
+3. Render detectará y creará:
+  - `agentica-api` (Web Service)
+  - `agentica-web` (Static Site)
+  - `agentica-db` (PostgreSQL)
+
+### 2) Configurar variables críticas
+
+En el servicio `agentica-api`, configura obligatoriamente:
+
+`DATABASE_URL` se conecta automáticamente al PostgreSQL `agentica-db` definido en el Blueprint.
+`JWT_SECRET` se genera automáticamente por Render y no debe guardarse en el repositorio.
+`CORS_ALLOWED_ORIGINS` se configura automáticamente como `https://agentica-web.onrender.com`.
+
+Opcionales según uso:
+
+- `GEMINI_API_KEY`, `GITHUB_TOKEN`, `AWS_*`, `JIRA_*`
+
+### 3) Base de datos
+
+- El Blueprint crea `agentica-db` con el plan gratuito y configura `DATABASE_URL` automáticamente.
+- Si tu workspace no ofrece PostgreSQL gratuito, crea la base en Neon o Supabase y reemplaza la referencia `fromDatabase` por `sync: false`; luego carga manualmente `DATABASE_URL`.
+- En cada deploy del API se ejecuta automáticamente `prisma migrate deploy`.
+
+### 4) Conectar frontend con backend
+
+El static site usa `VITE_API_URL` para apuntar al API.
+
+- Valor por defecto en `render.yaml`: `https://agentica-api.onrender.com/api`
+- Si Render asigna otro dominio al API, actualiza `VITE_API_URL` y relanza el deploy del frontend.
+
+### 5) Verificación post-deploy
+
+1. Comprueba `GET /api/health`.
+2. Abre el frontend y valida el login.
+3. Crea un proyecto y una HDU para validar el flujo base.
+
 ## API
 
 | Endpoint | Método | Descripción |

@@ -63,6 +63,12 @@ async function migrate() {
 
       console.log(`  ${displayId} -> ${story.title.substring(0, 50)}`)
     }
+
+    await tx.hduSequence.upsert({
+      where: { id: 'GLOBAL' },
+      create: { id: 'GLOBAL', nextNumber: stories.length + 2 },
+      update: { nextNumber: stories.length + 2 },
+    })
   })
 
   console.log('\nMigración completada: HDU y suites actualizadas!')
