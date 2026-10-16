@@ -224,6 +224,20 @@ export function buildGitHubHduTitle(displayId: string | null | undefined, title:
 }
 
 /**
+ * Título canónico que se publica al importar un work item desde GitHub.
+ * Las HDUs incluyen el correlativo público del SaaS; el resto conserva el
+ * nombre limpio porque Epic/Feature/Bug aún no tienen un displayId propio.
+ */
+export function buildGitHubImportedWorkItemTitle(
+  targetType: 'EPIC' | 'FEATURE' | 'HDU' | 'BUG',
+  title: string,
+  displayId?: string | null,
+): string {
+  if (targetType === 'HDU') return buildGitHubHduTitle(displayId, title);
+  return targetType === 'BUG' ? buildGitHubBugTitle(title) : title.trim();
+}
+
+/**
  * Extrae los criterios de Definition of Done del cuerpo de un issue.
  * Busca secciones "Definition of Done", "DoD", "Definición de Terminado", etc.
  */

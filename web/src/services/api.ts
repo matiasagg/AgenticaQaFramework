@@ -346,8 +346,8 @@ export const githubSyncApi = {
     return response.data
   },
 
-  syncIssues: async (projectId: string, issueNumbers: number[]) => {
-    const response = await api.post(`/github-sync/${projectId}/sync`, { issueNumbers })
+  syncIssues: async (projectId: string, issueNumbers: number[], force = false) => {
+    const response = await api.post(`/github-sync/${projectId}/sync`, { issueNumbers, force })
     return response.data
   },
 
