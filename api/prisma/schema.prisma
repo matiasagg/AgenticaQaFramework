@@ -104,6 +104,13 @@ model Epic {
   dorChecklist Json?
   isReady     Boolean @default(false)
   staticAnalysis Json?
+  // Identidad y estado de sincronización con el proveedor externo.
+  externalSystem String?
+  externalId     String?
+  externalUrl    String?
+  syncStatus     SyncStatus @default(UNSYNCED)
+  syncMetadata   Json?
+  syncedAt       DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -114,6 +121,8 @@ model Epic {
   userStories UserStory[]
 
   @@index([projectId])
+  @@unique([projectId, externalSystem, externalId])
+  @@index([externalSystem, externalId])
 }
 
 enum EpicStatus {
@@ -133,6 +142,13 @@ model Feature {
   dorChecklist Json?
   isReady     Boolean @default(false)
   staticAnalysis Json?
+  // Identidad y estado de sincronización con el proveedor externo.
+  externalSystem String?
+  externalId     String?
+  externalUrl    String?
+  syncStatus     SyncStatus @default(UNSYNCED)
+  syncMetadata   Json?
+  syncedAt       DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -142,6 +158,8 @@ model Feature {
   userStories UserStory[]
 
   @@index([epicId])
+  @@unique([epicId, externalSystem, externalId])
+  @@index([externalSystem, externalId])
 }
 
 enum FeatureStatus {

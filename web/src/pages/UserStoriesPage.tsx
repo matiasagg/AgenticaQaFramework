@@ -1484,9 +1484,17 @@ export default function UserStoriesPage() {
                   </div>
                 )}
 
-                {validationResult.syncRecommendation && validationResult.syncRecommendation.action !== 'NONE' && (
+                {validationResult.syncRecommendation && (
+                  validationResult.syncRecommendation.action !== 'NONE' || validationResult.syncRecommendation.linkedToGitHub
+                ) && (
                   <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-200">
-                    <p className="font-medium">{validationResult.syncRecommendation.action === 'SYNC' ? '🔄 Sincronización pendiente' : '🔗 Integración de GitHub'}</p>
+                    <p className="font-medium">
+                      {validationResult.syncRecommendation.action === 'SYNC'
+                        ? '🔄 Sincronización pendiente'
+                        : validationResult.syncRecommendation.linkedToGitHub
+                        ? '✅ GitHub sincronizado'
+                        : '🔗 Integración de GitHub'}
+                    </p>
                     <p className="mt-1">{validationResult.syncRecommendation.message}</p>
                     {validationResult.syncRecommendation.action === 'SYNC' && selectedStory && (
                       <button

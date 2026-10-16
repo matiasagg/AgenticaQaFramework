@@ -21,6 +21,7 @@ import {
   fetchBranches,
   fetchPullRequests,
   buildGitHubHduTitle,
+  buildGitHubImportedWorkItemTitle,
 } from '../githubIntegration'
 
 describe('githubIntegration service', () => {
@@ -37,6 +38,18 @@ describe('githubIntegration service', () => {
     it('does not duplicate an existing correlativo or bracket prefix', () => {
       expect(buildGitHubHduTitle('HDU-012', '[HDU-012] Aplicar mejoras DoR')).toBe('HDU-012 - Aplicar mejoras DoR')
       expect(buildGitHubHduTitle('HDU-012', 'HDU-012 - Aplicar mejoras DoR')).toBe('HDU-012 - Aplicar mejoras DoR')
+    })
+  })
+
+  describe('buildGitHubImportedWorkItemTitle', () => {
+    it('adds the canonical SaaS id when importing an HDU', () => {
+      expect(buildGitHubImportedWorkItemTitle('HDU', 'Sincronizar work items', 'HDU-002'))
+        .toBe('HDU-002 - Sincronizar work items')
+    })
+
+    it('keeps the normalized name for work items without a canonical id', () => {
+      expect(buildGitHubImportedWorkItemTitle('FEATURE', 'Autenticación')).toBe('Autenticación')
+      expect(buildGitHubImportedWorkItemTitle('BUG', 'Error de login')).toBe('Error de login')
     })
   })
 
