@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { epicsApi, featuresApi } from '../services/api'
+import { epicsApi, featuresApi, githubSyncApi } from '../services/api'
 import PortfolioDorModal from '../components/dor/PortfolioDorModal'
 
 interface FeatureItem {
@@ -9,11 +9,14 @@ interface FeatureItem {
   description?: string
   status?: string
   epicId: string
-  epic?: { id: string; name: string }
+  epic?: { id: string; name: string; projectId?: string }
   createdAt: string
   updatedAt?: string
   dorScore?: number | null
   isReady?: boolean
+  externalSystem?: string | null
+  externalId?: string | null
+  syncStatus?: string | null
 }
 
 export default function FeaturesPage() {
@@ -31,6 +34,7 @@ export default function FeaturesPage() {
   const [validatingDor, setValidatingDor] = useState(false)
   const [previewingDor, setPreviewingDor] = useState(false)
   const [applyingDor, setApplyingDor] = useState(false)
+  const [pushingFeatureId, setPushingFeatureId] = useState<string | null>(null)
 
   useEffect(() => {
     if (token) {
@@ -90,6 +94,20 @@ export default function FeaturesPage() {
     } catch (err) {
       console.error('Error deleting feature', err)
       alert('Error al eliminar feature')
+    }
+  }
+
+  const handlePushToGitHub = async (feature: FeatureItem) => {
+    if (!feature.externalId || !feature.epic?.projectId) return
+    try {
+      setPushingFeatureId(feature.id)
+      await githubSyncApi.pushWorkItem(feature.epic.projectId, { entityType: 'FEATURE', entityId: feature.id })
+      alert('Feature sincronizada con GitHub correctamente.')
+      await fetchFeatures()
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || error?.error?.message || 'Error al sincronizar la feature con GitHub')
+    } finally {
+      setPushingFeatureId(null)
     }
   }
 
@@ -239,6 +257,16 @@ export default function FeaturesPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200" onClick={() => validateFeatureDor(f)}>Analizar DoR</button>
+                  {f.externalSystem === 'GITHUB' && f.externalId && f.epic?.projectId && (
+                    <button
+                      className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                      onClick={() => handlePushToGitHub(f)}
+                      disabled={pushingFeatureId === f.id}
+                      title="Publicar cambios locales en GitHub"
+                    >
+                      {pushingFeatureId === f.id ? 'Sincronizando...' : 'Push a GitHub'}
+                    </button>
+                  )}
                   <button className="btn-ghost" onClick={() => handleEdit(f)}>Editar</button>
                   <button className="btn-danger" onClick={() => handleDelete(f.id)}>Eliminar</button>
                 </div>

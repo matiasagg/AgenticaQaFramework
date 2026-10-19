@@ -17,6 +17,7 @@ interface GitHubIssuePreview {
   targetType: 'EPIC' | 'FEATURE' | 'HDU' | 'BUG'
   alreadyImported: boolean
   needsSync: boolean
+  syncEventId?: string | null
   sourceDisplayId?: string | null
   canonicalDisplayId?: string | null
   changes: GitHubSyncChange[]
@@ -232,6 +233,28 @@ export default function GitHubSyncPage() {
       await loadIssues()
     } catch (err: any) {
       setError(getErrorMessage(err, 'Error al sincronizar cambios de GitHub'))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const handleResolveEvent = async (issue: GitHubIssuePreview, action: 'accept' | 'reject') => {
+    if (!issue.syncEventId) return
+    try {
+      setSyncing(true)
+      setError(null)
+      if (action === 'accept') {
+        await githubSyncApi.acceptEvent(selectedProject, issue.syncEventId)
+        setMessage(`✅ Cambios del issue #${issue.number} aplicados en el SaaS`)
+      } else {
+        await githubSyncApi.rejectEvent(selectedProject, issue.syncEventId)
+        setMessage(`✅ Cambios del issue #${issue.number} rechazados`)
+      }
+      setSelectedIssues(previous => previous.filter(number => number !== issue.number))
+      setExpandedChanges(null)
+      await loadIssues()
+    } catch (err: any) {
+      setError(getErrorMessage(err, 'No se pudo resolver el cambio de GitHub'))
     } finally {
       setSyncing(false)
     }
@@ -509,6 +532,26 @@ export default function GitHubSyncPage() {
                         </div>
                       )
                     })}
+                    {issue.syncEventId && (
+                      <div className="flex gap-2 pt-2 border-t border-yellow-200 dark:border-yellow-800">
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); void handleResolveEvent(issue, 'accept') }}
+                          disabled={syncing}
+                          className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          Aplicar en SaaS
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); void handleResolveEvent(issue, 'reject') }}
+                          disabled={syncing}
+                          className="px-2 py-1 text-xs rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
+                        >
+                          Rechazar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

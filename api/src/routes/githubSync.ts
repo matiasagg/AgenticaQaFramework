@@ -143,6 +143,58 @@ function buildGitHubSyncChanges(
   return changes;
 }
 
+async function upsertPendingSyncEvent(
+  projectId: string,
+  userId: string,
+  issue: { number: number; updated_at: string },
+  targetType: IssueTargetType,
+  existing: { id?: string } | null | undefined,
+  changes: GitHubSyncChange[],
+  mapped: Record<string, unknown>,
+): Promise<{ id: string; status: 'PENDING' | 'ACCEPTED' | 'REJECTED' } | null> {
+  if (!existing?.id || changes.length === 0) return null;
+
+  const externalId = String(issue.number);
+  const normalizedTitle = normalizeIssueTitle(String(mapped.title || ''));
+  const snapshot = {
+    targetType,
+    issueNumber: issue.number,
+    sourceUpdatedAt: issue.updated_at,
+    title: normalizedTitle,
+    description: buildIssueDescription(String(mapped.description || ''), String(mapped.githubUrl || '')),
+    mapped,
+  };
+
+  return prisma.syncEvent.upsert({
+    where: {
+      projectId_externalSystem_externalId_sourceVersion: {
+        projectId,
+        externalSystem: 'GITHUB',
+        externalId,
+        sourceVersion: issue.updated_at,
+      },
+    },
+    create: {
+      projectId,
+      userId,
+      entityType: targetType,
+      entityId: existing.id,
+      externalSystem: 'GITHUB',
+      externalId,
+      sourceVersion: issue.updated_at,
+      operation: 'UPDATE',
+      status: 'PENDING',
+      changes: JSON.parse(JSON.stringify(changes)),
+      snapshot: JSON.parse(JSON.stringify(snapshot)),
+    },
+    update: {
+      changes: JSON.parse(JSON.stringify(changes)),
+      snapshot: JSON.parse(JSON.stringify(snapshot)),
+    },
+    select: { id: true, status: true },
+  });
+}
+
 function detectIssueTarget(issue: { title: string; labels: Array<{ name: string }> }): IssueTargetType {
   const labels = issue.labels.map((l) => l.name.toLowerCase());
   const title = issue.title.toLowerCase();
@@ -238,12 +290,13 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
   const token = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
   const issues = await fetchIssues(project.repository, state, token);
 
-  const existingStories: Array<Record<string, unknown> & { externalId: string | null; title: string; syncedAt: Date | null; syncMetadata: unknown; displayId: string | null; sourceDisplayId: string | null }> = await prisma.userStory.findMany({
+  const existingStories: Array<Record<string, unknown> & { id: string; externalId: string | null; title: string; syncedAt: Date | null; syncMetadata: unknown; displayId: string | null; sourceDisplayId: string | null }> = await prisma.userStory.findMany({
     where: {
       projectId: project.id,
       externalSystem: 'GITHUB',
     },
     select: {
+      id: true,
       externalId: true,
       title: true,
       description: true,
@@ -263,12 +316,13 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
       sourceDisplayId: true,
     },
   });
-  const existingBugs: Array<Record<string, unknown> & { githubId: string | null; title: string; updatedAt: Date | null }> = await prisma.bugReport.findMany({
+  const existingBugs: Array<Record<string, unknown> & { id: string; githubId: string | null; title: string; updatedAt: Date | null; githubSyncedAt: Date | null }> = await prisma.bugReport.findMany({
     where: {
       projectId: project.id,
       githubId: { not: null },
     },
     select: {
+      id: true,
       githubId: true,
       title: true,
       description: true,
@@ -279,6 +333,7 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
       labels: true,
       assignee: true,
       branchName: true,
+      githubSyncedAt: true,
       updatedAt: true,
     },
   });
@@ -297,7 +352,7 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
     ...existingFeatures.map((feature) => feature.externalId).filter(Boolean),
   ]);
 
-  const preview = issues.map((issue) => {
+  const preview = await Promise.all(issues.map(async (issue) => {
     const targetType = detectIssueTarget(issue);
     const story = existingStories.find((item) => item.externalId === String(issue.number));
     const bug = existingBugs.find((item) => item.githubId === String(issue.number));
@@ -309,9 +364,23 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
     const existing = story || bug || epic || feature;
     const syncedAt = story
       ? getLastGitHubUpdate(story)
-      : bug?.updatedAt || (epic ? getLastGitHubUpdate(epic) : undefined) || (feature ? getLastGitHubUpdate(feature) : undefined);
+      : bug?.githubSyncedAt || bug?.updatedAt || (epic ? getLastGitHubUpdate(epic) : undefined) || (feature ? getLastGitHubUpdate(feature) : undefined);
     const mapped = targetType === 'BUG' ? mapIssueToBugReport(issue) : mapIssueToUserStory(issue);
 
+    const needsSync = existing ? hasGitHubIssueChanged(issue, syncedAt) : false;
+    const syncEvent = needsSync
+      ? await upsertPendingSyncEvent(
+        project.id,
+        req.user!.id,
+        issue,
+        targetType,
+        existing,
+        buildGitHubSyncChanges(targetType, (existing || null) as Record<string, unknown> | null, mapped as unknown as Record<string, unknown>),
+        mapped as unknown as Record<string, unknown>,
+      )
+      : null;
+
+    const actionableSyncEvent = syncEvent?.status === 'PENDING' ? syncEvent : null;
     return {
       number: issue.number,
       title: issue.title,
@@ -321,15 +390,205 @@ router.get('/:projectId/issues', asyncHandler(async (req: AuthenticatedRequest, 
       labels: issue.labels.map((l) => l.name),
       targetType,
       alreadyImported: importedExternalIds.has(String(issue.number)) || Boolean(existing),
-      needsSync: existing ? hasGitHubIssueChanged(issue, syncedAt) : false,
+      needsSync: needsSync && (!syncEvent || syncEvent.status === 'PENDING'),
+      syncEventId: actionableSyncEvent?.id || null,
       sourceDisplayId: story?.sourceDisplayId || extractSourceHduDisplayId(issue.title, issue.body),
       canonicalDisplayId: story?.displayId || null,
       mapped,
       changes: buildGitHubSyncChanges(targetType, (existing || null) as Record<string, unknown> | null, mapped as unknown as Record<string, unknown>),
     };
-  });
+  }));
 
   res.json({ issues: preview, repository: project.repository });
+}));
+
+/**
+ * GET /api/github-sync/:projectId/events?status=PENDING
+ * Lista cambios externos que requieren decisión explícita.
+ */
+router.get('/:projectId/events', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.projectId, userId: req.user!.id },
+    select: { id: true },
+  });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+
+  const status = typeof req.query.status === 'string' ? req.query.status : 'PENDING';
+  const events = await prisma.syncEvent.findMany({
+    where: { projectId: project.id, status: status as any },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+  res.json({ events });
+}));
+
+/**
+ * POST /api/github-sync/:projectId/events/:eventId/accept
+ * Aplica el snapshot externo en la entidad local y registra la aprobación.
+ */
+router.post('/:projectId/events/:eventId/accept', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const event = await prisma.syncEvent.findFirst({
+    where: {
+      id: req.params.eventId,
+      projectId: req.params.projectId,
+      project: { userId: req.user!.id },
+    },
+    include: { project: { select: { repository: true, githubToken: true } } },
+  });
+  if (!event) throw new ApiError('Evento de sincronización no encontrado', 404);
+  if (event.status !== 'PENDING') throw new ApiError('El evento ya fue resuelto', 409);
+
+  if (!event.project.repository) throw new ApiError('El proyecto no tiene repositorio configurado', 400);
+  const currentIssues = await fetchIssues(
+    event.project.repository,
+    'all',
+    event.project.githubToken ? decryptApiKey(event.project.githubToken) : undefined,
+  );
+  const currentIssue = currentIssues.find((issue) => String(issue.number) === event.externalId);
+  if (!currentIssue || currentIssue.updated_at !== event.sourceVersion) {
+    throw new ApiError('El issue de GitHub cambió nuevamente. Actualiza la vista y genera un nuevo evento.', 409);
+  }
+
+  const snapshot = event.snapshot as { title?: string; description?: string; mapped?: Record<string, unknown>; sourceUpdatedAt?: string };
+  const mapped = snapshot.mapped || {};
+  let entity: unknown;
+
+  if (event.entityType === 'HDU') {
+    const existing = await prisma.userStory.findFirst({ where: { id: event.entityId, projectId: event.projectId, userId: req.user!.id } });
+    if (!existing) throw new ApiError('HDU vinculada al evento no encontrada', 404);
+    entity = await prisma.userStory.update({
+      where: { id: existing.id },
+      data: {
+        title: normalizeIssueTitle(String(snapshot.title || mapped.title || existing.title)),
+        description: String(snapshot.description || existing.description),
+        acceptanceCriteria: Array.isArray(mapped.acceptanceCriteria) ? mapped.acceptanceCriteria as string[] : existing.acceptanceCriteria,
+        definitionOfDone: Array.isArray(mapped.definitionOfDone) ? mapped.definitionOfDone as string[] : existing.definitionOfDone,
+        technicalNotes: Array.isArray(mapped.technicalNotes) ? mapped.technicalNotes as string[] : existing.technicalNotes,
+        evidences: Array.isArray(mapped.evidences) ? mapped.evidences as string[] : existing.evidences,
+        dependencies: Array.isArray(mapped.dependencies) ? mapped.dependencies as string[] : existing.dependencies,
+        priority: typeof mapped.priority === 'string' ? mapped.priority as any : existing.priority,
+        storyPoints: typeof mapped.storyPoints === 'number' ? mapped.storyPoints : null,
+        labels: Array.isArray(mapped.labels) ? mapped.labels as string[] : existing.labels,
+        assignee: typeof mapped.assignee === 'string' ? mapped.assignee : null,
+        branchName: typeof mapped.branchName === 'string' ? mapped.branchName : null,
+        syncStatus: 'SYNCED',
+        syncMetadata: { issueNumber: event.externalId, source: 'github', sourceUpdatedAt: event.sourceVersion, acceptedAt: new Date().toISOString() },
+        syncedAt: new Date(event.sourceVersion),
+      },
+    });
+  } else if (event.entityType === 'BUG') {
+    const existing = await prisma.bugReport.findFirst({ where: { id: event.entityId, projectId: event.projectId, userId: req.user!.id } });
+    if (!existing) throw new ApiError('Bug vinculado al evento no encontrado', 404);
+    entity = await prisma.bugReport.update({
+      where: { id: existing.id },
+      data: {
+        title: normalizeIssueTitle(String(snapshot.title || mapped.title || existing.title)),
+        description: String(snapshot.description || existing.description),
+        severity: typeof mapped.severity === 'string' ? mapped.severity as any : existing.severity,
+        stepsToReproduce: Array.isArray(mapped.stepsToReproduce) ? mapped.stepsToReproduce as string[] : existing.stepsToReproduce,
+        expectedResult: typeof mapped.expectedResult === 'string' ? mapped.expectedResult : existing.expectedResult,
+        actualResult: typeof mapped.actualResult === 'string' ? mapped.actualResult : existing.actualResult,
+        labels: Array.isArray(mapped.labels) ? mapped.labels as string[] : existing.labels,
+        assignee: typeof mapped.assignee === 'string' ? mapped.assignee : null,
+        branchName: typeof mapped.branchName === 'string' ? mapped.branchName : null,
+        githubSyncedAt: new Date(event.sourceVersion),
+        githubSyncMetadata: { issueNumber: event.externalId, source: 'github', sourceUpdatedAt: event.sourceVersion, acceptedAt: new Date().toISOString() },
+      },
+    });
+  } else if (event.entityType === 'EPIC' || event.entityType === 'FEATURE') {
+    const name = normalizeIssueTitle(String(snapshot.title || mapped.title || ''));
+    if (event.entityType === 'EPIC') {
+      entity = await prisma.epic.update({
+        where: { id: event.entityId },
+        data: {
+          name,
+          description: String(snapshot.description || ''),
+          externalSystem: 'GITHUB',
+          externalId: event.externalId,
+          syncStatus: 'SYNCED',
+          syncMetadata: { issueNumber: event.externalId, source: 'github', sourceUpdatedAt: event.sourceVersion, acceptedAt: new Date().toISOString() },
+          syncedAt: new Date(event.sourceVersion),
+        },
+      });
+    } else {
+      entity = await prisma.feature.update({
+        where: { id: event.entityId },
+        data: {
+          name,
+          description: String(snapshot.description || ''),
+          externalSystem: 'GITHUB',
+          externalId: event.externalId,
+          syncStatus: 'SYNCED',
+          syncMetadata: { issueNumber: event.externalId, source: 'github', sourceUpdatedAt: event.sourceVersion, acceptedAt: new Date().toISOString() },
+          syncedAt: new Date(event.sourceVersion),
+        },
+      });
+    }
+  } else {
+    throw new ApiError(`Tipo de work item no soportado: ${event.entityType}`, 400);
+  }
+
+  const resolved = await prisma.syncEvent.update({
+    where: { id: event.id },
+    data: { status: 'ACCEPTED', resolvedById: req.user!.id, resolvedAt: new Date() },
+  });
+  res.json({ event: resolved, entity, message: 'Cambio de GitHub aplicado en el SaaS' });
+}));
+
+/** Rechaza un cambio externo sin modificar la entidad local. */
+router.post('/:projectId/events/:eventId/reject', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const event = await prisma.syncEvent.findFirst({
+    where: { id: req.params.eventId, projectId: req.params.projectId, project: { userId: req.user!.id } },
+  });
+  if (!event) throw new ApiError('Evento de sincronización no encontrado', 404);
+  if (event.status !== 'PENDING') throw new ApiError('El evento ya fue resuelto', 409);
+  const resolved = await prisma.syncEvent.update({
+    where: { id: event.id },
+    data: { status: 'REJECTED', resolvedById: req.user!.id, resolvedAt: new Date() },
+  });
+  res.json({ event: resolved, message: 'Cambio de GitHub rechazado; el SaaS no fue modificado' });
+}));
+
+/**
+ * POST /api/github-sync/:projectId/push
+ * Publica cambios de una épica o feature local en su issue vinculado.
+ * HDUs y bugs conservan sus endpoints especializados por compatibilidad.
+ */
+router.post('/:projectId/push', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { entityType, entityId } = req.body as { entityType?: string; entityId?: string };
+  if (!['EPIC', 'FEATURE'].includes(entityType || '') || !entityId) {
+    throw new ApiError('Faltan entityType (EPIC o FEATURE) y entityId', 400);
+  }
+
+  const project = await prisma.project.findFirst({ where: { id: req.params.projectId, userId: req.user!.id } });
+  if (!project) throw new ApiError('Proyecto no encontrado', 404);
+  if (!project.repository || !/^https?:\/\/(?:www\.)?github\.com\//i.test(project.repository)) {
+    throw new ApiError('El proyecto no tiene un repositorio de GitHub válido.', 400);
+  }
+
+  const entity = entityType === 'EPIC'
+    ? await prisma.epic.findFirst({ where: { id: entityId, projectId: project.id }, select: { id: true, name: true, description: true, externalId: true, externalUrl: true } })
+    : await prisma.feature.findFirst({ where: { id: entityId, epic: { projectId: project.id } }, select: { id: true, name: true, description: true, externalId: true, externalUrl: true } });
+  if (!entity) throw new ApiError(`${entityType === 'EPIC' ? 'Épica' : 'Feature'} no encontrada`, 404);
+  const issueNumber = entity.externalId ? Number(entity.externalId) : NaN;
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new ApiError('El work item no tiene un issue de GitHub válido.', 400);
+
+  const projectToken = project.githubToken ? decryptApiKey(project.githubToken) : undefined;
+  const githubResult = await updateGitHubIssue(
+    project.repository,
+    issueNumber,
+    {
+      title: buildGitHubImportedWorkItemTitle(entityType as 'EPIC' | 'FEATURE', entity.name),
+      body: entity.description,
+    },
+    projectToken,
+  );
+  const syncedAt = githubResult.updated_at ? new Date(githubResult.updated_at) : new Date();
+  const updated = entityType === 'EPIC'
+    ? await prisma.epic.update({ where: { id: entity.id }, data: { syncStatus: 'SYNCED', syncMetadata: { issueNumber, source: 'github', sourceUpdatedAt: githubResult.updated_at, syncedAt: syncedAt.toISOString() }, syncedAt } })
+    : await prisma.feature.update({ where: { id: entity.id }, data: { syncStatus: 'SYNCED', syncMetadata: { issueNumber, source: 'github', sourceUpdatedAt: githubResult.updated_at, syncedAt: syncedAt.toISOString() }, syncedAt } });
+
+  res.json({ message: `${entityType === 'EPIC' ? 'Épica' : 'Feature'} sincronizada con GitHub`, entity: updated, github: githubResult });
 }));
 
 /**
@@ -364,7 +623,7 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
       externalId: { in: normalizedIssueNumbers.map(String) },
     },
   });
-  const bugs: Array<{ id: string; githubId: string | null; updatedAt: Date | null }> = await prisma.bugReport.findMany({
+  const bugs: Array<{ id: string; githubId: string | null; updatedAt: Date | null; githubSyncedAt: Date | null }> = await prisma.bugReport.findMany({
     where: {
       projectId: project.id,
       userId: req.user!.id,
@@ -388,7 +647,7 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
     if (targetType === 'BUG') {
       // Sincronizar bug
       const bug = bugs.find((item) => item.githubId === String(issue.number));
-      if (!bug || !hasGitHubIssueChanged(issue, bug.updatedAt)) {
+      if (!bug || !hasGitHubIssueChanged(issue, bug.githubSyncedAt || bug.updatedAt)) {
         skipped.push(issue.number);
         continue;
       }
@@ -409,6 +668,8 @@ router.post('/:projectId/sync', asyncHandler(async (req: AuthenticatedRequest, r
           assignee: bugMapped.assignee,
           labels: bugMapped.labels,
           branchName: bugMapped.branchName ?? null,
+          githubSyncedAt: new Date(issue.updated_at),
+          githubSyncMetadata: { issueNumber: issue.number, source: 'github', sourceUpdatedAt: issue.updated_at, syncedAt: new Date().toISOString() },
         },
       });
       synced.push({ id: bug.id, issueNumber: issue.number, type: 'BUG' });
@@ -761,6 +1022,8 @@ router.post('/:projectId/import', asyncHandler(async (req: AuthenticatedRequest,
             projectId: project.id,
             userId: req.user!.id,
             githubId: externalId,
+            githubSyncedAt: new Date(issue.updated_at),
+            githubSyncMetadata: { issueNumber: issue.number, source: 'github', sourceUpdatedAt: issue.updated_at, importedAt: new Date().toISOString() },
             status: 'OPEN',
             assignee: bugMapped.assignee,
             labels: bugMapped.labels,

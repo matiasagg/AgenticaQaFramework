@@ -53,6 +53,12 @@ const mocks = vi.hoisted(() => {
       create: vi.fn(),
       update: vi.fn(),
     },
+    syncEvent: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      upsert: vi.fn(),
+      update: vi.fn(),
+    },
     testSuite: {
       update: vi.fn(),
     },
@@ -218,6 +224,10 @@ describe('GitHub Sync Routes', () => {
     mocks.mockPrisma.feature.findMany.mockResolvedValue([])
     mocks.mockPrisma.feature.create.mockResolvedValue({ id: 'feature-default', epicId: 'epic-default' })
     mocks.mockPrisma.feature.update.mockResolvedValue({ id: 'feature-existing', name: 'Existing feature' })
+    mocks.mockPrisma.syncEvent.findMany.mockResolvedValue([])
+    mocks.mockPrisma.syncEvent.findFirst.mockResolvedValue(null)
+    mocks.mockPrisma.syncEvent.upsert.mockResolvedValue(null)
+    mocks.mockPrisma.syncEvent.update.mockResolvedValue({ id: 'event-1', status: 'ACCEPTED' })
   })
 
   describe('GET /api/github-sync/:projectId/issues', () => {
@@ -373,6 +383,87 @@ describe('GitHub Sync Routes', () => {
       const res = await request(app).get('/api/github-sync/proj-1/issues')
 
       expect(res.status).toBe(400)
+    })
+
+    it('should create an idempotent pending event for an external HDU change', async () => {
+      mocks.mockFetchIssues.mockResolvedValue([{ ...mockIssue, title: 'Login user story', labels: [] }])
+      mocks.mockMapIssueToUserStory.mockReturnValue({ ...mockMapped, title: 'Login user story', priority: 'HIGH' })
+      mocks.mockPrisma.userStory.findMany.mockResolvedValue([{
+        id: 'us-existing-1',
+        externalId: '42',
+        title: 'Old local title',
+        description: 'Old description',
+        acceptanceCriteria: ['Criterion 1'],
+        definitionOfDone: [],
+        technicalNotes: [],
+        evidences: [],
+        dependencies: [],
+        priority: 'MEDIUM',
+        storyPoints: null,
+        labels: [],
+        assignee: null,
+        branchName: null,
+        syncedAt: new Date('2024-01-01T00:00:00Z'),
+        syncMetadata: { sourceUpdatedAt: '2024-01-01T00:00:00Z' },
+        displayId: 'HDU-001',
+        sourceDisplayId: null,
+      }])
+      mocks.mockPrisma.syncEvent.upsert.mockResolvedValue({ id: 'event-42', status: 'PENDING' })
+
+      const app = createApp()
+      const res = await request(app).get('/api/github-sync/proj-1/issues')
+
+      expect(res.status).toBe(200)
+      expect(res.body.issues[0]).toMatchObject({ needsSync: true, syncEventId: 'event-42' })
+      expect(mocks.mockPrisma.syncEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: { projectId_externalSystem_externalId_sourceVersion: { projectId: 'proj-1', externalSystem: 'GITHUB', externalId: '42', sourceVersion: '2024-01-02T00:00:00Z' } },
+        create: expect.objectContaining({ entityType: 'HDU', entityId: 'us-existing-1', status: 'PENDING' }),
+      }))
+    })
+  })
+
+  describe('sync decision events', () => {
+    it('should accept an external HDU change and mark the source version as synced', async () => {
+      mocks.mockPrisma.syncEvent.findFirst.mockResolvedValue({
+        id: 'event-42',
+        projectId: 'proj-1',
+        userId: mocks.mockUserId,
+        entityType: 'HDU',
+        entityId: 'us-existing-1',
+        externalId: '42',
+        sourceVersion: '2024-01-02T00:00:00Z',
+        status: 'PENDING',
+        project: { repository: 'https://github.com/owner/repo', githubToken: null },
+        snapshot: { title: 'Updated title', description: 'Updated description', mapped: { title: 'Updated title', priority: 'HIGH', acceptanceCriteria: ['Criterion 1'] } },
+      })
+      mocks.mockFetchIssues.mockResolvedValue([{ ...mockIssue, updated_at: '2024-01-02T00:00:00Z' }])
+      mocks.mockPrisma.userStory.findFirst.mockResolvedValue({ id: 'us-existing-1', title: 'Old title', priority: 'MEDIUM', acceptanceCriteria: [] })
+      mocks.mockPrisma.userStory.update.mockResolvedValue({ id: 'us-existing-1', title: 'Updated title' })
+      mocks.mockPrisma.syncEvent.update.mockResolvedValue({ id: 'event-42', status: 'ACCEPTED' })
+
+      const app = createApp()
+      const res = await request(app).post('/api/github-sync/proj-1/events/event-42/accept')
+
+      expect(res.status).toBe(200)
+      expect(mocks.mockPrisma.userStory.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ syncedAt: new Date('2024-01-02T00:00:00Z') }),
+      }))
+      expect(mocks.mockPrisma.syncEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'event-42' },
+        data: expect.objectContaining({ status: 'ACCEPTED', resolvedById: mocks.mockUserId }),
+      }))
+    })
+
+    it('should reject an external change without updating the local entity', async () => {
+      mocks.mockPrisma.syncEvent.findFirst.mockResolvedValue({ id: 'event-42', projectId: 'proj-1', status: 'PENDING' })
+      mocks.mockPrisma.syncEvent.update.mockResolvedValue({ id: 'event-42', status: 'REJECTED' })
+
+      const app = createApp()
+      const res = await request(app).post('/api/github-sync/proj-1/events/event-42/reject')
+
+      expect(res.status).toBe(200)
+      expect(res.body.event.status).toBe('REJECTED')
+      expect(mocks.mockPrisma.userStory.update).not.toHaveBeenCalled()
     })
   })
 
@@ -622,6 +713,36 @@ describe('GitHub Sync Routes', () => {
       const res = await request(app).get('/api/github-sync/invalid/branches')
 
       expect(res.status).toBe(404)
+    })
+  })
+
+  describe('POST /api/github-sync/:projectId/push', () => {
+    it('should publish a local epic change to GitHub', async () => {
+      mocks.mockPrisma.epic.findFirst.mockResolvedValue({
+        id: 'epic-1',
+        name: 'Authentication',
+        description: 'Updated epic description',
+        externalId: '42',
+        externalUrl: 'https://github.com/owner/repo/issues/42',
+      })
+      mocks.mockUpdateGitHubIssue.mockResolvedValue({ ...mockIssue, title: 'Authentication', updated_at: '2024-01-03T00:00:00Z' })
+      mocks.mockPrisma.epic.update.mockResolvedValue({ id: 'epic-1', name: 'Authentication', syncStatus: 'SYNCED' })
+
+      const app = createApp()
+      const res = await request(app)
+        .post('/api/github-sync/proj-1/push')
+        .send({ entityType: 'EPIC', entityId: 'epic-1' })
+
+      expect(res.status).toBe(200)
+      expect(mocks.mockUpdateGitHubIssue).toHaveBeenCalledWith(
+        'https://github.com/owner/repo',
+        42,
+        { title: 'Authentication', body: 'Updated epic description' },
+        undefined,
+      )
+      expect(mocks.mockPrisma.epic.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ syncStatus: 'SYNCED' }),
+      }))
     })
   })
 

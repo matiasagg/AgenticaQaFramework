@@ -456,6 +456,20 @@ router.post('/:id/push-to-github', async (req: AuthenticatedRequest, res: Respon
       throw new ApiError(`Error al sincronizar con GitHub: ${message}`, 502);
     }
 
+    await prisma.bugReport.update({
+      where: { id: bug.id },
+      data: {
+        githubSyncedAt: githubResult.updated_at ? new Date(githubResult.updated_at) : new Date(),
+        githubSyncMetadata: {
+          issueNumber,
+          source: 'github',
+          sourceUpdatedAt: githubResult.updated_at,
+          syncedAt: new Date().toISOString(),
+          direction: 'SAAS_TO_GITHUB',
+        },
+      },
+    });
+
     res.json({
       message: 'Bug sincronizado con GitHub correctamente.',
       github: {
