@@ -233,10 +233,17 @@ export function calculateCoverageMetrics(
   }
 
   // ── Desglose por épica ──
+  const userStoriesById = new Map(userStories.map((hdu) => [hdu.id, hdu]));
   const epicBreakdown = epics.map((epic) => {
     const epicHduCount = epic.userStories?.length ?? 0;
     const epicHduWithTests = (epic.userStories ?? []).filter(
-      (hdu) => hdu.testSuite && hdu.testSuite.testLinks.length > 0
+      (hdu) => {
+        // Prisma's epic relation may only include IDs. Fall back to the
+        // project-level HDU payload so the breakdown preserves suite links.
+        const sourceStory = userStoriesById.get(hdu.id);
+        const suite = hdu.testSuite || sourceStory?.testSuite;
+        return suite && suite.testLinks.length > 0;
+      }
     ).length;
     return {
       id: epic.id,
