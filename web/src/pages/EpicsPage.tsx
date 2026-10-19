@@ -7,7 +7,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { epicsApi, projectsApi } from '../services/api'
+import { epicsApi, githubSyncApi, projectsApi } from '../services/api'
 import PortfolioDorModal from '../components/dor/PortfolioDorModal'
 
 /** Épica como viene de la API */
@@ -24,6 +24,9 @@ interface EpicItem {
   updatedAt: string
   dorScore?: number | null
   isReady?: boolean
+  externalSystem?: string | null
+  externalId?: string | null
+  syncStatus?: string | null
 }
 
 export default function EpicsPage() {
@@ -45,6 +48,7 @@ export default function EpicsPage() {
   const [validatingDor, setValidatingDor] = useState(false)
   const [previewingDor, setPreviewingDor] = useState(false)
   const [applyingDor, setApplyingDor] = useState(false)
+  const [pushingEpicId, setPushingEpicId] = useState<string | null>(null)
 
   useEffect(() => {
     if (token) {
@@ -109,6 +113,20 @@ export default function EpicsPage() {
       fetchEpics()
     } catch (error: any) {
       alert(error?.error?.message || 'Error al eliminar la épica')
+    }
+  }
+
+  const handlePushToGitHub = async (epic: EpicItem) => {
+    if (!epic.externalId) return
+    try {
+      setPushingEpicId(epic.id)
+      await githubSyncApi.pushWorkItem(epic.projectId, { entityType: 'EPIC', entityId: epic.id })
+      alert('Épica sincronizada con GitHub correctamente.')
+      await fetchEpics()
+    } catch (error: any) {
+      alert(error?.response?.data?.error?.message || error?.error?.message || 'Error al sincronizar la épica con GitHub')
+    } finally {
+      setPushingEpicId(null)
     }
   }
 
@@ -396,6 +414,16 @@ export default function EpicsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200" onClick={() => validateEpicDor(epic)}>Analizar DoR</button>
+                  {epic.externalSystem === 'GITHUB' && epic.externalId && (
+                    <button
+                      className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                      onClick={() => handlePushToGitHub(epic)}
+                      disabled={pushingEpicId === epic.id}
+                      title="Publicar cambios locales en GitHub"
+                    >
+                      {pushingEpicId === epic.id ? 'Sincronizando...' : 'Push a GitHub'}
+                    </button>
+                  )}
                   <button className="btn-ghost" onClick={() => handleEdit(epic)}>Editar</button>
                   <button
                     onClick={() => handleDelete(epic.id)}

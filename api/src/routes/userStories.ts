@@ -1072,6 +1072,13 @@ router.post('/:id/push-hdu', asyncHandler(async (req: AuthenticatedRequest, res:
       // timestamp del recurso actualizado evita que el issue vuelva a
       // aparecer como pendiente por diferencias entre relojes locales y GitHub.
       syncedAt: githubResult.updated_at ? new Date(githubResult.updated_at) : new Date(),
+      syncMetadata: {
+        issueNumber,
+        source: 'github',
+        sourceUpdatedAt: githubResult.updated_at,
+        syncedAt: new Date().toISOString(),
+        direction: 'SAAS_TO_GITHUB',
+      },
     },
     include: { project: true, epic: true, feature: true, testSuite: true },
   });

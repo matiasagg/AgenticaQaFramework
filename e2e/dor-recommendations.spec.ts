@@ -124,7 +124,7 @@ test.describe('HDU-001: aplicar recomendaciones DoR', () => {
     await expect(page.getByText(/Después: 5/)).toBeVisible()
 
     await page.getByRole('button', { name: 'Confirmar cambios seleccionados' }).click()
-    await expect(page.getByText('100%')).toBeVisible()
+    await expect(page.getByText('100%', { exact: true })).toBeVisible()
     await expect(page.getByText('✓ Lista para pruebas')).toBeVisible()
   })
 })

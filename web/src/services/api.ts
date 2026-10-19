@@ -346,8 +346,28 @@ export const githubSyncApi = {
     return response.data
   },
 
-  syncIssues: async (projectId: string, issueNumbers: number[]) => {
-    const response = await api.post(`/github-sync/${projectId}/sync`, { issueNumbers })
+  syncIssues: async (projectId: string, issueNumbers: number[], force = false) => {
+    const response = await api.post(`/github-sync/${projectId}/sync`, { issueNumbers, force })
+    return response.data
+  },
+
+  getEvents: async (projectId: string, status = 'PENDING') => {
+    const response = await api.get(`/github-sync/${projectId}/events`, { params: { status } })
+    return response.data
+  },
+
+  acceptEvent: async (projectId: string, eventId: string) => {
+    const response = await api.post(`/github-sync/${projectId}/events/${eventId}/accept`)
+    return response.data
+  },
+
+  rejectEvent: async (projectId: string, eventId: string) => {
+    const response = await api.post(`/github-sync/${projectId}/events/${eventId}/reject`)
+    return response.data
+  },
+
+  pushWorkItem: async (projectId: string, data: { entityType: 'EPIC' | 'FEATURE'; entityId: string }) => {
+    const response = await api.post(`/github-sync/${projectId}/push`, data)
     return response.data
   },
 

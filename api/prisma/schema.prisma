@@ -28,6 +28,8 @@ model User {
   agents         Agent[]
   projects       Project[]
   bugReports     BugReport[]
+  syncEvents     SyncEvent[] @relation("SyncEventCreatedBy")
+  resolvedSyncEvents SyncEvent[] @relation("SyncEventResolvedBy")
   testCases      TestCase[]
   evidence       Evidence[]
   coverageAnalysis CoverageAnalysis[]
@@ -104,6 +106,13 @@ model Epic {
   dorChecklist Json?
   isReady     Boolean @default(false)
   staticAnalysis Json?
+  // Identidad y estado de sincronización con el proveedor externo.
+  externalSystem String?
+  externalId     String?
+  externalUrl    String?
+  syncStatus     SyncStatus @default(UNSYNCED)
+  syncMetadata   Json?
+  syncedAt       DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -114,6 +123,8 @@ model Epic {
   userStories UserStory[]
 
   @@index([projectId])
+  @@unique([projectId, externalSystem, externalId])
+  @@index([externalSystem, externalId])
 }
 
 enum EpicStatus {
@@ -133,6 +144,13 @@ model Feature {
   dorChecklist Json?
   isReady     Boolean @default(false)
   staticAnalysis Json?
+  // Identidad y estado de sincronización con el proveedor externo.
+  externalSystem String?
+  externalId     String?
+  externalUrl    String?
+  syncStatus     SyncStatus @default(UNSYNCED)
+  syncMetadata   Json?
+  syncedAt       DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -142,6 +160,8 @@ model Feature {
   userStories UserStory[]
 
   @@index([epicId])
+  @@unique([epicId, externalSystem, externalId])
+  @@index([externalSystem, externalId])
 }
 
 enum FeatureStatus {
@@ -210,6 +230,7 @@ model Project {
   testSuites      TestSuite[]
   epics           Epic[]
   testPlans       TestPlan[]
+  syncEvents      SyncEvent[]
 }
 
 // BugReport model for tracking bugs
@@ -232,6 +253,9 @@ model BugReport {
   dorChecklist    Json?
   isReady         Boolean  @default(false)
   staticAnalysis  Json?
+  // Marca de la última versión de GitHub incorporada en el SaaS.
+  githubSyncedAt  DateTime?
+  githubSyncMetadata Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -243,6 +267,38 @@ model BugReport {
   agentId         String?
   agent           Agent?   @relation(fields: [agentId], references: [id])
   evidence        Evidence[]
+}
+
+enum SyncEventStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// Cambio detectado en la fuente externa que requiere una decisión explícita.
+model SyncEvent {
+  id             String          @id @default(cuid())
+  projectId      String
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User            @relation("SyncEventCreatedBy", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedById   String?
+  resolvedBy     User?           @relation("SyncEventResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  entityType     String
+  entityId       String
+  externalSystem String
+  externalId     String
+  sourceVersion  String
+  operation      String          @default("UPDATE")
+  status         SyncEventStatus @default(PENDING)
+  changes        Json
+  snapshot       Json
+  createdAt      DateTime        @default(now())
+  resolvedAt     DateTime?
+
+  @@unique([projectId, externalSystem, externalId, sourceVersion])
+  @@index([projectId, status, createdAt])
+  @@index([entityType, entityId, createdAt])
 }
 
 // Generic immutable DoR snapshots for entities that do not use the HDU
